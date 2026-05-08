@@ -1,7 +1,9 @@
 import { NextFunction, Request, Response } from 'express';
 
+import { t } from '../i18n/bot.i18n';
 import { stickerBotService } from '../services/sticker-bot.service';
 import { telegramService } from '../services/telegram.service';
+import { checkRateLimit } from '../utils/rate-limiter';
 
 type TelegramMessage = {
   text?: string;
@@ -52,6 +54,12 @@ const postTelegramWebhook = async (
         return;
       }
 
+      if (!checkRateLimit(String(chatId))) {
+        await telegramService.sendMessage(chatId, t('es', 'rateLimited'));
+        res.status(200).json({ ok: true });
+        return;
+      }
+
       await stickerBotService.registerUser({
         ownerId: String(chatId),
         username: callbackQuery.from?.username,
@@ -91,6 +99,12 @@ const postTelegramWebhook = async (
     const chatId = message?.chat?.id;
 
     if (!message?.text || chatId === undefined) {
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (!checkRateLimit(String(chatId))) {
+      await telegramService.sendMessage(chatId, t('es', 'rateLimited'));
       res.status(200).json({ ok: true });
       return;
     }
