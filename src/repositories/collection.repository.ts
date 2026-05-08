@@ -51,8 +51,10 @@ export type CollectionSummary = {
   albumSlug: string;
   name: string;
   ownerId: string;
+  ownerDisplayName?: string;
   memberCount: number;
   isActive: boolean;
+  isShared: boolean;
 };
 
 type StoredCollection = {
@@ -61,6 +63,7 @@ type StoredCollection = {
   ownerId: string;
   members: string[];
   createdAt: string;
+  deletedAt?: string;
   stickers: Record<string, number>;
   history: StickerHistoryEntry[];
 };
@@ -88,14 +91,19 @@ const createEmptyCollection = (options: {
   name: string;
   ownerId: string;
   members?: string[];
+  createdAt?: string;
+  deletedAt?: string;
+  stickers?: Record<string, number>;
+  history?: StickerHistoryEntry[];
 }): StoredCollection => ({
   albumSlug: options.albumSlug,
   name: options.name,
   ownerId: options.ownerId,
   members: options.members ?? [options.ownerId],
-  createdAt: new Date().toISOString(),
-  stickers: {},
-  history: [],
+  createdAt: options.createdAt ?? new Date().toISOString(),
+  deletedAt: options.deletedAt,
+  stickers: options.stickers ?? {},
+  history: options.history ?? [],
 });
 
 export class CollectionRepository {
@@ -126,7 +134,6 @@ export class CollectionRepository {
     };
 
     data.profiles[ownerId] = storedProfile;
-    this.getOrCreateCollection(data, ownerId);
     this.writeData(data);
 
     return storedProfile;
@@ -160,7 +167,6 @@ export class CollectionRepository {
     };
 
     data.profiles[normalizedOwnerId] = profile;
-    this.getOrCreateCollection(data, normalizedOwnerId);
     this.writeData(data);
 
     return profile;
@@ -168,9 +174,13 @@ export class CollectionRepository {
 
   getQuantity(ownerId: string, sticker: StickerRef): number {
     const data = this.readData();
-    const collection = this.getOrCreateCollection(data, ownerId);
+    const activeCollection = this.getActiveCollection(data, ownerId);
 
-    return collection.stickers[stickerKey(sticker)] ?? 0;
+    if (!activeCollection) {
+      throw new Error('No hay album activo.');
+    }
+
+    return activeCollection.collection.stickers[stickerKey(sticker)] ?? 0;
   }
 
   hasActiveAlbum(ownerId: string): boolean {
@@ -178,7 +188,13 @@ export class CollectionRepository {
     const normalizedOwnerId = this.normalizeOwnerId(ownerId);
     const collectionId = data.ownerCollections[normalizedOwnerId];
 
-    return Boolean(collectionId && data.collections[collectionId]);
+    const collection = collectionId ? data.collections[collectionId] : undefined;
+
+    return Boolean(
+      collection
+      && !collection.deletedAt
+      && collection.members.includes(normalizedOwnerId),
+    );
   }
 
   listAlbums(ownerId: string): CollectionSummary[] {
@@ -187,15 +203,16 @@ export class CollectionRepository {
     const activeCollectionId = data.ownerCollections[normalizedOwnerId];
 
     return Object.entries(data.collections)
-      .filter(([, collection]) => collection.members.includes(normalizedOwnerId))
-      .map(([id, collection]) => ({
+      .filter(([, collection]) =>
+        !collection.deletedAt && collection.members.includes(normalizedOwnerId),
+      )
+      .map(([id, collection]) => this.toCollectionSummary(
+        data,
         id,
-        albumSlug: collection.albumSlug,
-        name: collection.name,
-        ownerId: collection.ownerId,
-        memberCount: collection.members.length,
-        isActive: id === activeCollectionId,
-      }))
+        collection,
+        normalizedOwnerId,
+        activeCollectionId,
+      ))
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
@@ -205,21 +222,14 @@ export class CollectionRepository {
     const collectionId = data.ownerCollections[normalizedOwnerId];
     const collection = collectionId ? data.collections[collectionId] : undefined;
 
-    if (!collection) {
+    if (!collection || collection.deletedAt || !collection.members.includes(normalizedOwnerId)) {
       return null;
     }
 
-    return {
-      id: collectionId,
-      albumSlug: collection.albumSlug,
-      name: collection.name,
-      ownerId: collection.ownerId,
-      memberCount: collection.members.length,
-      isActive: true,
-    };
+    return this.toCollectionSummary(data, collectionId, collection, normalizedOwnerId, collectionId);
   }
 
-  createAlbum(ownerId: string, albumSlug: string): CollectionSummary | null {
+  createAlbum(ownerId: string, albumSlug: string, name?: string): CollectionSummary | null {
     const albumTemplate = getAlbumTemplate(albumSlug);
 
     if (!albumTemplate) {
@@ -229,22 +239,126 @@ export class CollectionRepository {
     const data = this.readData();
     const normalizedOwnerId = this.normalizeOwnerId(ownerId);
     const collectionId = randomUUID();
+    const albumName = this.normalizeAlbumName(name) ?? albumTemplate.name;
 
     data.collections[collectionId] = createEmptyCollection({
       albumSlug: albumTemplate.slug,
-      name: albumTemplate.name,
+      name: albumName,
       ownerId: normalizedOwnerId,
     });
     data.ownerCollections[normalizedOwnerId] = collectionId;
     this.writeData(data);
 
+    return this.toCollectionSummary(
+      data,
+      collectionId,
+      data.collections[collectionId],
+      normalizedOwnerId,
+      collectionId,
+    );
+  }
+
+  renameAlbum(
+    ownerId: string,
+    collectionId: string,
+    name: string,
+  ): { album?: CollectionSummary; error?: string } {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collection = data.collections[collectionId];
+    const normalizedName = this.normalizeAlbumName(name);
+
+    if (!collection || collection.deletedAt) {
+      return { error: 'Album no encontrado.' };
+    }
+
+    if (collection.ownerId !== normalizedOwnerId) {
+      return { error: 'Solo el dueno puede renombrar el album.' };
+    }
+
+    if (!normalizedName) {
+      return { error: 'Nombre de album invalido.' };
+    }
+
+    collection.name = normalizedName;
+    this.writeData(data);
+
     return {
-      id: collectionId,
-      albumSlug: albumTemplate.slug,
-      name: albumTemplate.name,
-      ownerId: normalizedOwnerId,
-      memberCount: 1,
-      isActive: true,
+      album: this.toCollectionSummary(
+        data,
+        collectionId,
+        collection,
+        normalizedOwnerId,
+        data.ownerCollections[normalizedOwnerId],
+      ),
+    };
+  }
+
+  deleteAlbum(
+    ownerId: string,
+    collectionId: string,
+  ): { album?: CollectionSummary; error?: string } {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collection = data.collections[collectionId];
+
+    if (!collection || collection.deletedAt) {
+      return { error: 'Album no encontrado.' };
+    }
+
+    if (collection.ownerId !== normalizedOwnerId) {
+      return { error: 'Solo el dueno puede borrar el album.' };
+    }
+
+    const summary = this.toCollectionSummary(
+      data,
+      collectionId,
+      collection,
+      normalizedOwnerId,
+      data.ownerCollections[normalizedOwnerId],
+    );
+
+    collection.deletedAt = new Date().toISOString();
+    collection.members = [];
+    this.removeActiveCollectionReferences(data, collectionId);
+    this.expirePendingShareRequests(data, collectionId);
+    this.writeData(data);
+
+    return { album: summary };
+  }
+
+  leaveAlbum(
+    ownerId: string,
+    collectionId: string,
+  ): { album?: CollectionSummary; error?: string } {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collection = data.collections[collectionId];
+
+    if (!collection || collection.deletedAt || !collection.members.includes(normalizedOwnerId)) {
+      return { error: 'Album no encontrado.' };
+    }
+
+    if (collection.ownerId === normalizedOwnerId) {
+      return { error: 'El dueno no puede salir del album. Debe borrarlo.' };
+    }
+
+    collection.members = collection.members.filter((memberId) => memberId !== normalizedOwnerId);
+
+    if (data.ownerCollections[normalizedOwnerId] === collectionId) {
+      delete data.ownerCollections[normalizedOwnerId];
+    }
+
+    this.writeData(data);
+
+    return {
+      album: this.toCollectionSummary(
+        data,
+        collectionId,
+        collection,
+        normalizedOwnerId,
+        data.ownerCollections[normalizedOwnerId],
+      ),
     };
   }
 
@@ -253,33 +367,36 @@ export class CollectionRepository {
     const normalizedOwnerId = this.normalizeOwnerId(ownerId);
     const collection = data.collections[collectionId];
 
-    if (!collection || !collection.members.includes(normalizedOwnerId)) {
+    if (!collection || collection.deletedAt || !collection.members.includes(normalizedOwnerId)) {
       return null;
     }
 
     data.ownerCollections[normalizedOwnerId] = collectionId;
     this.writeData(data);
 
-    return {
-      id: collectionId,
-      albumSlug: collection.albumSlug,
-      name: collection.name,
-      ownerId: collection.ownerId,
-      memberCount: collection.members.length,
-      isActive: true,
-    };
+    return this.toCollectionSummary(data, collectionId, collection, normalizedOwnerId, collectionId);
   }
 
   getStickerQuantities(ownerId: string): Record<string, number> {
     const data = this.readData();
-    const collection = this.getOrCreateCollection(data, ownerId);
+    const activeCollection = this.getActiveCollection(data, ownerId);
 
-    return { ...collection.stickers };
+    if (!activeCollection) {
+      throw new Error('No hay album activo.');
+    }
+
+    return { ...activeCollection.collection.stickers };
   }
 
   adjustQuantity(ownerId: string, sticker: StickerRef, delta: number): StickerQuantityChange {
     const data = this.readData();
-    const collection = this.getOrCreateCollection(data, ownerId);
+    const activeCollection = this.getActiveCollection(data, ownerId);
+
+    if (!activeCollection) {
+      throw new Error('No hay album activo.');
+    }
+
+    const collection = activeCollection.collection;
     const key = stickerKey(sticker);
     const previousQuantity = collection.stickers[key] ?? 0;
     const currentQuantity = Math.max(previousQuantity + delta, 0);
@@ -297,15 +414,25 @@ export class CollectionRepository {
 
   recordHistory(ownerId: string, entry: StickerHistoryEntry): void {
     const data = this.readData();
-    const collection = this.getOrCreateCollection(data, ownerId);
+    const activeCollection = this.getActiveCollection(data, ownerId);
 
-    collection.history.push(entry);
+    if (!activeCollection) {
+      throw new Error('No hay album activo.');
+    }
+
+    activeCollection.collection.history.push(entry);
     this.writeData(data);
   }
 
   undoLast(ownerId: string): StickerHistoryEntry | null {
     const data = this.readData();
-    const collection = this.getOrCreateCollection(data, ownerId);
+    const activeCollection = this.getActiveCollection(data, ownerId);
+
+    if (!activeCollection) {
+      throw new Error('No hay album activo.');
+    }
+
+    const collection = activeCollection.collection;
     const entry = collection.history.pop();
 
     if (!entry) {
@@ -342,16 +469,17 @@ export class CollectionRepository {
       };
     }
 
-    const collectionId = data.ownerCollections[normalizedFromOwnerId];
-    const targetCollectionId = data.ownerCollections[toProfile.ownerId];
+    const activeCollection = this.getActiveCollection(data, normalizedFromOwnerId);
 
-    if (!collectionId || !data.collections[collectionId]) {
+    if (!activeCollection) {
       return {
         error: 'No hay album activo.',
       };
     }
 
-    if (targetCollectionId && collectionId === targetCollectionId) {
+    const { id: collectionId } = activeCollection;
+
+    if (activeCollection.collection.members.includes(toProfile.ownerId)) {
       return {
         error: `Ya compartes album con @${normalizedTargetUsername}.`,
       };
@@ -361,7 +489,8 @@ export class CollectionRepository {
       (request) =>
         request.status === 'pending'
         && request.fromOwnerId === normalizedFromOwnerId
-        && request.toOwnerId === toProfile.ownerId,
+        && request.toOwnerId === toProfile.ownerId
+        && request.collectionId === collectionId,
     );
 
     if (existingRequest) {
@@ -379,8 +508,6 @@ export class CollectionRepository {
     };
 
     data.shareRequests[request.id] = request;
-    this.getOrCreateCollection(data, normalizedFromOwnerId);
-    this.getOrCreateCollection(data, toProfile.ownerId);
 
     if (!fromProfile) {
       data.profiles[normalizedFromOwnerId] = {
@@ -411,13 +538,22 @@ export class CollectionRepository {
       return { error: 'Esta solicitud ya fue respondida.' };
     }
 
-    const sourceCollection = this.getOrCreateCollectionById(data, request.collectionId);
+    const sourceCollection = data.collections[request.collectionId];
+
+    if (!sourceCollection || sourceCollection.deletedAt) {
+      return { error: 'Album no encontrado.' };
+    }
+
+    if (!sourceCollection.members.includes(request.fromOwnerId)) {
+      return { error: 'Album no encontrado.' };
+    }
+
     const targetCollectionId = data.ownerCollections[request.toOwnerId];
     const targetCollection = targetCollectionId
       ? data.collections[targetCollectionId]
       : undefined;
 
-    if (targetCollection) {
+    if (targetCollection && !targetCollection.deletedAt && targetCollection.ownerId === request.toOwnerId) {
       for (const [key, quantity] of Object.entries(targetCollection.stickers)) {
         sourceCollection.stickers[key] = Math.max(sourceCollection.stickers[key] ?? 0, quantity);
       }
@@ -497,34 +633,29 @@ export class CollectionRepository {
       : path.resolve(process.cwd(), 'data', 'collection.json');
   }
 
-  private getOrCreateCollection(data: StoredData, ownerId: string): StoredCollection {
-    const collectionId = this.getCollectionId(data, ownerId);
-
-    return this.getOrCreateCollectionById(data, collectionId);
-  }
-
-  private getOrCreateCollectionById(data: StoredData, collectionId: string): StoredCollection {
-    const albumTemplate = getAlbumTemplate(DEFAULT_ALBUM_SLUG);
-
-    data.collections[collectionId] ??= createEmptyCollection({
-      albumSlug: DEFAULT_ALBUM_SLUG,
-      name: albumTemplate?.name ?? 'Panini FIFA World Cup 2026',
-      ownerId: collectionId,
-    });
-
-    return data.collections[collectionId];
-  }
-
-  private getCollectionId(data: StoredData, ownerId: string): string {
+  private getActiveCollection(
+    data: StoredData,
+    ownerId: string,
+  ): { id: string; collection: StoredCollection } | null {
     const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collectionId = data.ownerCollections[normalizedOwnerId];
+    const collection = collectionId ? data.collections[collectionId] : undefined;
 
-    data.ownerCollections[normalizedOwnerId] ??= normalizedOwnerId;
+    if (!collection || collection.deletedAt || !collection.members.includes(normalizedOwnerId)) {
+      return null;
+    }
 
-    return data.ownerCollections[normalizedOwnerId];
+    return { id: collectionId, collection };
   }
 
   private normalizeOwnerId(ownerId: string): string {
     return ownerId.trim() || 'default';
+  }
+
+  private normalizeAlbumName(name: string | undefined): string | undefined {
+    const normalizedName = name?.trim().replace(/\s+/g, ' ');
+
+    return normalizedName || undefined;
   }
 
   private normalizeData(data: Partial<StoredData>): StoredData {
@@ -539,24 +670,95 @@ export class CollectionRepository {
     const albumTemplate = getAlbumTemplate(DEFAULT_ALBUM_SLUG);
 
     for (const [collectionId, collection] of Object.entries(normalizedData.collections)) {
+      const legacyOwnerId = collection.ownerId ?? collectionId;
+
       collection.albumSlug ??= DEFAULT_ALBUM_SLUG;
       collection.name ??= albumTemplate?.name ?? 'Panini FIFA World Cup 2026';
-      collection.ownerId ??= collectionId;
-      collection.members ??= [collection.ownerId];
+      collection.ownerId = this.normalizeOwnerId(legacyOwnerId);
+      collection.members = [...new Set((collection.members ?? [collection.ownerId]).map((memberId) =>
+        this.normalizeOwnerId(memberId),
+      ))];
       collection.createdAt ??= new Date().toISOString();
       collection.stickers ??= {};
       collection.history ??= [];
+
+      if (!collection.deletedAt && !collection.members.includes(collection.ownerId)) {
+        collection.members.unshift(collection.ownerId);
+      }
+
+      normalizedData.ownerCollections[collection.ownerId] ??= collectionId;
     }
 
     for (const [ownerId, collectionId] of Object.entries(normalizedData.ownerCollections)) {
+      const normalizedOwnerId = this.normalizeOwnerId(ownerId);
       const collection = normalizedData.collections[collectionId];
 
-      if (collection && !collection.members.includes(ownerId)) {
-        collection.members.push(ownerId);
+      if (!collection || collection.deletedAt) {
+        delete normalizedData.ownerCollections[ownerId];
+        continue;
+      }
+
+      if (!collection.members.includes(normalizedOwnerId)) {
+        delete normalizedData.ownerCollections[ownerId];
+      }
+    }
+
+    for (const request of Object.values(normalizedData.shareRequests)) {
+      request.fromOwnerId = this.normalizeOwnerId(request.fromOwnerId);
+      request.toOwnerId = this.normalizeOwnerId(request.toOwnerId);
+      request.targetUsername = request.targetUsername?.replace(/^@/, '').toLowerCase();
+
+      if (!request.collectionId) {
+        request.collectionId = normalizedData.ownerCollections[request.fromOwnerId];
+      }
+
+      const collection = normalizedData.collections[request.collectionId];
+
+      if (!collection || collection.deletedAt) {
+        request.status = request.status === 'pending' ? 'declined' : request.status;
+        request.respondedAt ??= new Date().toISOString();
       }
     }
 
     return normalizedData;
+  }
+
+  private toCollectionSummary(
+    data: StoredData,
+    id: string,
+    collection: StoredCollection,
+    requesterOwnerId: string,
+    activeCollectionId: string | undefined,
+  ): CollectionSummary {
+    const normalizedRequesterOwnerId = this.normalizeOwnerId(requesterOwnerId);
+
+    return {
+      id,
+      albumSlug: collection.albumSlug,
+      name: collection.name,
+      ownerId: collection.ownerId,
+      ownerDisplayName: data.profiles[collection.ownerId]?.displayName,
+      memberCount: collection.members.length,
+      isActive: id === activeCollectionId,
+      isShared: collection.ownerId !== normalizedRequesterOwnerId,
+    };
+  }
+
+  private removeActiveCollectionReferences(data: StoredData, collectionId: string): void {
+    for (const [ownerId, activeCollectionId] of Object.entries(data.ownerCollections)) {
+      if (activeCollectionId === collectionId) {
+        delete data.ownerCollections[ownerId];
+      }
+    }
+  }
+
+  private expirePendingShareRequests(data: StoredData, collectionId: string): void {
+    for (const request of Object.values(data.shareRequests)) {
+      if (request.collectionId === collectionId && request.status === 'pending') {
+        request.status = 'declined';
+        request.respondedAt = new Date().toISOString();
+      }
+    }
   }
 
   private setStoredQuantity(collection: StoredCollection, key: string, quantity: number): void {

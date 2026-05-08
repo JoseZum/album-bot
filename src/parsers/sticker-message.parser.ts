@@ -15,6 +15,12 @@ export type ParsedBotMessage =
   | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
   | { intent: 'share'; targetUsername: string; showNames: boolean }
+  | { intent: 'albumList'; showNames: boolean }
+  | { intent: 'albumCreate'; albumName: string; showNames: boolean }
+  | { intent: 'albumSelect'; selector: string; showNames: boolean }
+  | { intent: 'albumRename'; albumName: string; selector?: string; showNames: boolean }
+  | { intent: 'albumDelete'; selector?: string; showNames: boolean }
+  | { intent: 'albumLeave'; showNames: boolean }
   | { intent: 'start'; showNames: boolean }
   | { intent: 'language'; showNames: boolean }
   | { intent: 'undo'; showNames: boolean }
@@ -41,6 +47,12 @@ const START_ALIASES = new Set(['start', 'menu', 'album', 'albums', 'albumes']);
 const LANGUAGE_ALIASES = new Set(['language', 'lang', 'idioma']);
 const UNDO_ALIASES = new Set(['undo', 'deshacer']);
 const HELP_ALIASES = new Set(['help', 'ayuda']);
+
+const ALBUM_CREATE_ALIASES = new Set(['new', 'create', 'nuevo', 'nueva', 'crear', 'crea']);
+const ALBUM_SELECT_ALIASES = new Set(['use', 'select', 'switch', 'usar', 'usa', 'seleccionar', 'selecciona', 'cambiar']);
+const ALBUM_RENAME_ALIASES = new Set(['rename', 'renombrar', 'renombra']);
+const ALBUM_DELETE_ALIASES = new Set(['delete', 'remove', 'rm', 'eliminar', 'elimina', 'borrar', 'borra']);
+const ALBUM_LEAVE_ALIASES = new Set(['leave', 'salir', 'sal']);
 
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -148,6 +160,129 @@ const parseCountry = (input: string): CountryCatalogEntry | null => {
   return cleaned ? resolveCountry(cleaned) ?? null : null;
 };
 
+const stripLeadingWords = (input: string, count: number): string =>
+  input.trim().split(/\s+/).slice(count).join(' ').trim();
+
+const parseAlbumRename = (
+  remainder: string,
+  showNames: boolean,
+): ParsedBotMessage => {
+  const namedRenameMatch = /^(.+?)\s+(?:to|a)\s+(.+)$/i.exec(remainder);
+
+  if (namedRenameMatch) {
+    return {
+      intent: 'albumRename',
+      selector: namedRenameMatch[1].trim(),
+      albumName: namedRenameMatch[2].trim(),
+      showNames,
+    };
+  }
+
+  return {
+    intent: 'albumRename',
+    albumName: remainder,
+    showNames,
+  };
+};
+
+const parseAlbumCommand = (
+  text: string,
+  showNames: boolean,
+): ParsedBotMessage | null => {
+  const normalizedText = normalizeForParsing(text);
+  const tokens = normalizedText.split(/\s+/).filter(Boolean);
+  const firstToken = tokens[0]?.replace(/^\/+/, '');
+  const secondToken = tokens[1];
+
+  if (!firstToken) {
+    return null;
+  }
+
+  if (firstToken === 'albums' || firstToken === 'albumes') {
+    return { intent: 'albumList', showNames };
+  }
+
+  if (firstToken === 'album' || firstToken === 'albumes') {
+    if (!secondToken) {
+      return { intent: 'start', showNames };
+    }
+
+    const remainder = stripLeadingWords(text, 2);
+
+    if (ALBUM_CREATE_ALIASES.has(secondToken)) {
+      return remainder
+        ? { intent: 'albumCreate', albumName: remainder, showNames }
+        : { intent: 'unknown', reason: 'Album name required.', showNames };
+    }
+
+    if (ALBUM_SELECT_ALIASES.has(secondToken)) {
+      return remainder
+        ? { intent: 'albumSelect', selector: remainder, showNames }
+        : { intent: 'unknown', reason: 'Album selector required.', showNames };
+    }
+
+    if (ALBUM_RENAME_ALIASES.has(secondToken)) {
+      return remainder
+        ? parseAlbumRename(remainder, showNames)
+        : { intent: 'unknown', reason: 'Album name required.', showNames };
+    }
+
+    if (ALBUM_DELETE_ALIASES.has(secondToken)) {
+      return {
+        intent: 'albumDelete',
+        selector: remainder || undefined,
+        showNames,
+      };
+    }
+
+    if (ALBUM_LEAVE_ALIASES.has(secondToken)) {
+      return { intent: 'albumLeave', showNames };
+    }
+
+    return null;
+  }
+
+  const secondIsAlbum = secondToken === 'album' || secondToken === 'albumes';
+
+  if (secondIsAlbum && ALBUM_CREATE_ALIASES.has(firstToken)) {
+    const albumName = stripLeadingWords(text, 2);
+
+    return albumName
+      ? { intent: 'albumCreate', albumName, showNames }
+      : { intent: 'unknown', reason: 'Album name required.', showNames };
+  }
+
+  if (secondIsAlbum && ALBUM_SELECT_ALIASES.has(firstToken)) {
+    const selector = stripLeadingWords(text, 2);
+
+    return selector
+      ? { intent: 'albumSelect', selector, showNames }
+      : { intent: 'unknown', reason: 'Album selector required.', showNames };
+  }
+
+  if (secondIsAlbum && ALBUM_RENAME_ALIASES.has(firstToken)) {
+    const albumName = stripLeadingWords(text, 2);
+
+    return albumName
+      ? parseAlbumRename(albumName, showNames)
+      : { intent: 'unknown', reason: 'Album name required.', showNames };
+  }
+
+  if (secondIsAlbum && ALBUM_DELETE_ALIASES.has(firstToken)) {
+    return {
+      intent: 'albumDelete',
+      selector: stripLeadingWords(text, 2) || undefined,
+      showNames,
+    };
+  }
+
+  if (secondIsAlbum && ALBUM_LEAVE_ALIASES.has(firstToken)) {
+    return { intent: 'albumLeave', showNames };
+  }
+
+  return null;
+};
+
 export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
   const originalText = rawText.trim();
   const { text, showNames } = stripNameFlag(originalText);
@@ -159,6 +294,12 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
       targetUsername: shareMatch[1].toLowerCase(),
       showNames,
     };
+  }
+
+  const albumCommand = parseAlbumCommand(text, showNames);
+
+  if (albumCommand) {
+    return albumCommand;
   }
 
   const normalizedText = normalizeForParsing(text);
