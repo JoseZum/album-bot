@@ -46,6 +46,7 @@ jobs:
           psql $DATABASE_URL -f db/01-schema.sql
           psql $DATABASE_URL -f db/02-seed-album-data.sql
           psql $DATABASE_URL -f db/03-trade-offers.sql
+          psql $DATABASE_URL -f db/04-drop-sticker-fks.sql
 
       - name: Build
         run: npm run build
