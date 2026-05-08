@@ -23,6 +23,18 @@ import {
 export type BotMessageResult = {
   reply: string;
   parsed: ParsedBotMessage;
+  outboundMessages?: BotOutboundMessage[];
+};
+
+export type BotActionResult = {
+  reply: string;
+  outboundMessages?: BotOutboundMessage[];
+};
+
+export type BotOutboundMessage = {
+  chatId: string;
+  text: string;
+  replyMarkup?: unknown;
 };
 
 type CountryStats = {
@@ -42,18 +54,81 @@ const HELP_TEXT = [
   'add arg4: agrega una estampa.',
   'rm arg4 o remove arg 4: elimina una estampa.',
   'undo: revierte el ultimo cambio.',
+  'share @usuario: solicita compartir el mismo album con otro usuario de Telegram.',
   'missing arg, duplicates, progress.',
 ].join('\n');
 
 export class StickerBotService {
   constructor(private readonly repository: CollectionRepository = collectionRepository) {}
 
+  registerUser(profile: {
+    ownerId: string;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
+  }): void {
+    this.repository.registerProfile(profile);
+  }
+
   handleMessage(text: string, ownerId = 'default'): BotMessageResult {
     const parsed = parseStickerMessage(text);
+    const result = parsed.intent === 'share'
+      ? this.shareAlbum(ownerId, parsed.targetUsername)
+      : { reply: this.buildReply(parsed, ownerId) };
 
     return {
       parsed,
-      reply: this.buildReply(parsed, ownerId),
+      ...result,
+    };
+  }
+
+  handleShareResponse(callbackData: string, ownerId: string): BotActionResult {
+    const match = /^share:(accept|decline):(.+)$/.exec(callbackData);
+
+    if (!match) {
+      return { reply: 'Respuesta de compartir album invalida.' };
+    }
+
+    const [, action, requestId] = match;
+
+    if (action === 'accept') {
+      const result = this.repository.acceptShareRequest(requestId, ownerId);
+
+      if (result.error || !result.request) {
+        return { reply: result.error ?? 'No pude aceptar la solicitud.' };
+      }
+
+      const responderProfile = this.repository.getProfile(ownerId);
+      const responderName = responderProfile?.displayName ?? ownerId;
+
+      return {
+        reply: 'Yes. Ahora compartes el mismo album.',
+        outboundMessages: [
+          {
+            chatId: result.request.fromOwnerId,
+            text: `${responderName} acepto compartir el album contigo.`,
+          },
+        ],
+      };
+    }
+
+    const result = this.repository.declineShareRequest(requestId, ownerId);
+
+    if (result.error || !result.request) {
+      return { reply: result.error ?? 'No pude rechazar la solicitud.' };
+    }
+
+    const responderProfile = this.repository.getProfile(ownerId);
+    const responderName = responderProfile?.displayName ?? ownerId;
+
+    return {
+      reply: 'No. Solicitud rechazada.',
+      outboundMessages: [
+        {
+          chatId: result.request.fromOwnerId,
+          text: `${responderName} rechazo compartir el album.`,
+        },
+      ],
     };
   }
 
@@ -73,6 +148,8 @@ export class StickerBotService {
         return this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames);
       case 'progress':
         return this.showProgress(ownerId);
+      case 'share':
+        return this.shareAlbum(ownerId, parsed.targetUsername).reply;
       case 'undo':
         return this.undoLast(ownerId);
       case 'help':
@@ -237,6 +314,41 @@ export class StickerBotService {
       `Duplicadas: ${duplicates}.`,
       `Paises iniciados: ${countriesStarted}/${WORLD_CUP_CATALOG.length}.`,
     ].join('\n');
+  }
+
+  private shareAlbum(ownerId: string, targetUsername: string): BotActionResult {
+    const result = this.repository.createShareRequest(ownerId, targetUsername);
+
+    if (result.error || !result.request) {
+      return { reply: result.error ?? 'No pude crear la solicitud.' };
+    }
+
+    const fromProfile = this.repository.getProfile(ownerId);
+    const inviterName = fromProfile?.displayName ?? ownerId;
+
+    return {
+      reply: `Solicitud enviada a @${targetUsername}.`,
+      outboundMessages: [
+        {
+          chatId: result.request.toOwnerId,
+          text: `${inviterName} quiere compartir su album contigo.\n\nYes or No?`,
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                {
+                  text: 'Yes',
+                  callback_data: `share:accept:${result.request.id}`,
+                },
+                {
+                  text: 'No',
+                  callback_data: `share:decline:${result.request.id}`,
+                },
+              ],
+            ],
+          },
+        },
+      ],
+    };
   }
 
   private getCountryStats(ownerId: string, countryCode: string): CountryStats | null {

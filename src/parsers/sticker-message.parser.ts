@@ -14,6 +14,7 @@ export type ParsedBotMessage =
   | { intent: 'missing'; countryCode?: string; showNames: boolean }
   | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
+  | { intent: 'share'; targetUsername: string; showNames: boolean }
   | { intent: 'undo'; showNames: boolean }
   | { intent: 'help'; showNames: boolean }
   | { intent: 'unknown'; reason: string; showNames: boolean };
@@ -136,6 +137,16 @@ const parseCountry = (input: string): CountryCatalogEntry | null => {
 export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
   const originalText = rawText.trim();
   const { text, showNames } = stripNameFlag(originalText);
+  const shareMatch = /^\/?share\s+@([a-z0-9_]{5,32})$/i.exec(text);
+
+  if (shareMatch) {
+    return {
+      intent: 'share',
+      targetUsername: shareMatch[1].toLowerCase(),
+      showNames,
+    };
+  }
+
   const normalizedText = normalizeForParsing(text);
 
   if (!normalizedText) {
