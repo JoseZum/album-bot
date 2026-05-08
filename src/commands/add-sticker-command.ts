@@ -9,8 +9,8 @@ export class AddStickerCommand implements ReversibleStickerCommand {
     private readonly sticker: StickerRef,
   ) {}
 
-  execute(): StickerCommandResult {
-    const change = this.collectionRepository.adjustQuantity(this.ownerId, this.sticker, 1);
+  async execute(): Promise<StickerCommandResult> {
+    const change = await this.collectionRepository.adjustQuantity(this.ownerId, this.sticker, 1);
 
     return {
       action: 'add',
@@ -18,8 +18,8 @@ export class AddStickerCommand implements ReversibleStickerCommand {
     };
   }
 
-  undo(): StickerCommandResult {
-    const change = this.collectionRepository.adjustQuantity(this.ownerId, this.sticker, -1);
+  async undo(): Promise<StickerCommandResult> {
+    const change = await this.collectionRepository.adjustQuantity(this.ownerId, this.sticker, -1);
 
     return {
       action: 'remove',

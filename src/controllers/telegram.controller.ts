@@ -52,14 +52,14 @@ const postTelegramWebhook = async (
         return;
       }
 
-      stickerBotService.registerUser({
+      await stickerBotService.registerUser({
         ownerId: String(chatId),
         username: callbackQuery.from?.username,
         firstName: callbackQuery.from?.first_name,
         lastName: callbackQuery.from?.last_name,
       });
 
-      const result = stickerBotService.handleCallbackData(callbackQuery.data, String(chatId));
+      const result = await stickerBotService.handleCallbackData(callbackQuery.data, String(chatId));
       await telegramService.answerCallbackQuery(callbackQuery.id);
       const sendResult = await telegramService.sendMessage(chatId, result.reply, {
         replyMarkup: result.replyMarkup,
@@ -93,14 +93,14 @@ const postTelegramWebhook = async (
       return;
     }
 
-    stickerBotService.registerUser({
+    await stickerBotService.registerUser({
       ownerId: String(chatId),
       username: message.from?.username,
       firstName: message.from?.first_name,
       lastName: message.from?.last_name,
     });
 
-    const result = stickerBotService.handleMessage(message.text, String(chatId));
+    const result = await stickerBotService.handleMessage(message.text, String(chatId));
     const sendResult = await telegramService.sendMessage(chatId, result.reply, {
       replyMarkup: result.replyMarkup,
     });

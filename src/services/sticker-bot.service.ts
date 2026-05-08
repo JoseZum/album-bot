@@ -73,18 +73,18 @@ type TradeCandidate = {
 export class StickerBotService {
   constructor(private readonly repository: CollectionRepository = collectionRepository) {}
 
-  registerUser(profile: {
+  async registerUser(profile: {
     ownerId: string;
     username?: string;
     firstName?: string;
     lastName?: string;
     language?: BotLanguage;
-  }): void {
-    this.repository.registerProfile(profile);
+  }): Promise<void> {
+    await this.repository.registerProfile(profile);
   }
 
-  handleMessage(text: string, ownerId = 'default'): BotMessageResult {
-    const language = this.getLanguage(ownerId);
+  async handleMessage(text: string, ownerId = 'default'): Promise<BotMessageResult> {
+    const language = await this.getLanguage(ownerId);
     const parsed = parseStickerMessage(text);
 
     if (!language) {
@@ -104,12 +104,12 @@ export class StickerBotService {
     if (parsed.intent === 'start') {
       return {
         parsed,
-        ...this.startMenuReply(ownerId, language),
+        ...await this.startMenuReply(ownerId, language),
       };
     }
 
-    if (this.requiresActiveAlbum(parsed) && !this.repository.hasActiveAlbum(ownerId)) {
-      const menu = this.startMenuReply(ownerId, language);
+    if (this.requiresActiveAlbum(parsed) && !await this.repository.hasActiveAlbum(ownerId)) {
+      const menu = await this.startMenuReply(ownerId, language);
 
       return {
         parsed,
@@ -117,7 +117,7 @@ export class StickerBotService {
         replyMarkup: menu.replyMarkup,
       };
     }
-    const result = this.buildReply(parsed, ownerId, language);
+    const result = await this.buildReply(parsed, ownerId, language);
 
     return {
       parsed,
@@ -125,18 +125,18 @@ export class StickerBotService {
     };
   }
 
-  handleCallbackData(callbackData: string, ownerId: string): BotActionResult {
+  async handleCallbackData(callbackData: string, ownerId: string): Promise<BotActionResult> {
     const languageMatch = /^lang:(.+)$/.exec(callbackData);
 
     if (languageMatch) {
       const language = languageMatch[1];
 
       if (!isBotLanguage(language)) {
-        return { reply: t(this.getLanguage(ownerId) ?? 'en', 'unknownCallback') };
+        return { reply: t(await this.getLanguage(ownerId) ?? 'en', 'unknownCallback') };
       }
 
-      this.repository.setLanguage(ownerId, language);
-      const menu = this.startMenuReply(ownerId, language);
+      await this.repository.setLanguage(ownerId, language);
+      const menu = await this.startMenuReply(ownerId, language);
 
       return {
         reply: `${t(language, 'languageSaved')}\n\n${menu.reply}`,
@@ -148,10 +148,10 @@ export class StickerBotService {
 
     if (albumMatch) {
       const [, action, value] = albumMatch;
-      const language = this.getLanguage(ownerId) ?? 'en';
+      const language = await this.getLanguage(ownerId) ?? 'en';
 
       if (action === 'create') {
-        const album = this.repository.createAlbum(ownerId, value);
+        const album = await this.repository.createAlbum(ownerId, value);
 
         if (!album) {
           return { reply: t(language, 'unknownAlbumAction') };
@@ -162,7 +162,7 @@ export class StickerBotService {
         };
       }
 
-      const album = this.repository.setActiveAlbum(ownerId, value);
+      const album = await this.repository.setActiveAlbum(ownerId, value);
 
       if (!album) {
         return { reply: t(language, 'unknownAlbumAction') };
@@ -177,7 +177,7 @@ export class StickerBotService {
 
     if (compareMatch) {
       const [, targetUsername, albumIndex, countryCode, showNames] = compareMatch;
-      const language = this.getLanguage(ownerId) ?? 'en';
+      const language = await this.getLanguage(ownerId) ?? 'en';
 
       return this.compareSelectedAlbum(
         ownerId,
@@ -251,8 +251,8 @@ export class StickerBotService {
     return this.handleShareResponse(callbackData, ownerId);
   }
 
-  handleShareResponse(callbackData: string, ownerId: string): BotActionResult {
-    const language = this.getLanguage(ownerId) ?? 'en';
+  async handleShareResponse(callbackData: string, ownerId: string): Promise<BotActionResult> {
+    const language = await this.getLanguage(ownerId) ?? 'en';
     const match = /^share:(accept|decline):(.+)$/.exec(callbackData);
 
     if (!match) {
@@ -262,15 +262,15 @@ export class StickerBotService {
     const [, action, requestId] = match;
 
     if (action === 'accept') {
-      const result = this.repository.acceptShareRequest(requestId, ownerId);
+      const result = await this.repository.acceptShareRequest(requestId, ownerId);
 
       if (result.error || !result.request) {
         return { reply: this.translateShareRepositoryError(result.error, language) ?? t(language, 'shareAcceptError') };
       }
 
-      const responderProfile = this.repository.getProfile(ownerId);
+      const responderProfile = await this.repository.getProfile(ownerId);
       const responderName = responderProfile?.displayName ?? ownerId;
-      const inviterLanguage = this.getLanguage(result.request.fromOwnerId) ?? language;
+      const inviterLanguage = await this.getLanguage(result.request.fromOwnerId) ?? language;
 
       return {
         reply: t(language, 'shareAccepted'),
@@ -283,15 +283,15 @@ export class StickerBotService {
       };
     }
 
-    const result = this.repository.declineShareRequest(requestId, ownerId);
+    const result = await this.repository.declineShareRequest(requestId, ownerId);
 
     if (result.error || !result.request) {
       return { reply: this.translateShareRepositoryError(result.error, language) ?? t(language, 'shareDeclineError') };
     }
 
-    const responderProfile = this.repository.getProfile(ownerId);
+    const responderProfile = await this.repository.getProfile(ownerId);
     const responderName = responderProfile?.displayName ?? ownerId;
-    const inviterLanguage = this.getLanguage(result.request.fromOwnerId) ?? language;
+    const inviterLanguage = await this.getLanguage(result.request.fromOwnerId) ?? language;
 
     return {
       reply: t(language, 'shareDeclined'),
@@ -304,20 +304,20 @@ export class StickerBotService {
     };
   }
 
-  private buildReply(
+  private async buildReply(
     parsed: ParsedBotMessage,
     ownerId: string,
     language: BotLanguage,
-  ): BotActionResult {
+  ): Promise<BotActionResult> {
     switch (parsed.intent) {
       case 'querySticker':
-        return { reply: this.querySticker(ownerId, parsed.sticker, parsed.showNames, language) };
+        return { reply: await this.querySticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'queryCountry':
-        return { reply: this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language) };
+        return { reply: await this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'addSticker':
-        return { reply: this.addSticker(ownerId, parsed.sticker, parsed.showNames, language) };
+        return { reply: await this.addSticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'removeSticker':
-        return { reply: this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language) };
+        return { reply: await this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'tradeCreate':
         return this.createTrade(ownerId, parsed.give, parsed.want);
       case 'tradeListMine':
@@ -327,11 +327,11 @@ export class StickerBotService {
       case 'marketplaceSearch':
         return this.searchMarketplace(ownerId, parsed.search);
       case 'missing':
-        return { reply: this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language) };
+        return { reply: await this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'duplicates':
-        return { reply: this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language) };
+        return { reply: await this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'progress':
-        return { reply: this.showProgress(ownerId, language) };
+        return { reply: await this.showProgress(ownerId, language) };
       case 'share':
         return this.shareAlbum(ownerId, parsed.targetUsername, language);
       case 'compare':
@@ -359,7 +359,7 @@ export class StickerBotService {
       case 'language':
         return this.languageSelectionReply();
       case 'undo':
-        return { reply: this.undoLast(ownerId, language) };
+        return { reply: await this.undoLast(ownerId, language) };
       case 'help':
         return { reply: t(language, 'help') };
       case 'unknown':
@@ -369,12 +369,12 @@ export class StickerBotService {
     }
   }
 
-  private createTrade(
+  private async createTrade(
     ownerId: string,
     give: TradeSelector,
     want: TradeSelector,
-  ): BotActionResult {
-    const result = this.repository.createTradeOffer(ownerId, give, want);
+  ): Promise<BotActionResult> {
+    const result = await this.repository.createTradeOffer(ownerId, give, want);
 
     if (result.error || !result.offer) {
       return {
@@ -387,8 +387,8 @@ export class StickerBotService {
     };
   }
 
-  private listMyTrades(ownerId: string): BotActionResult {
-    const offers = this.repository.listTradeOffersForOwner(ownerId);
+  private async listMyTrades(ownerId: string): Promise<BotActionResult> {
+    const offers = await this.repository.listTradeOffersForOwner(ownerId);
 
     if (offers.length === 0) {
       return { reply: 'You have no active or pending trades.' };
@@ -397,7 +397,7 @@ export class StickerBotService {
     const lines = ['Your trades:'];
 
     for (const offer of offers) {
-      lines.push(this.formatTradeOfferForOwner(offer));
+      lines.push(await this.formatTradeOfferForOwner(offer));
     }
 
     return {
@@ -406,9 +406,9 @@ export class StickerBotService {
     };
   }
 
-  private cancelTrade(ownerId: string, tradeId: string): BotActionResult {
-    const existingOffer = this.repository.getTradeOffer(tradeId);
-    const result = this.repository.cancelTradeOffer(ownerId, tradeId);
+  private async cancelTrade(ownerId: string, tradeId: string): Promise<BotActionResult> {
+    const existingOffer = await this.repository.getTradeOffer(tradeId);
+    const result = await this.repository.cancelTradeOffer(ownerId, tradeId);
 
     if (result.error || !result.offer) {
       return {
@@ -420,7 +420,7 @@ export class StickerBotService {
       ? [
         {
           chatId: existingOffer.reservedByOwnerId,
-          text: `Trade ${tradeId} was cancelled by ${this.getDisplayName(ownerId)}.`,
+          text: `Trade ${tradeId} was cancelled by ${await this.getDisplayName(ownerId)}.`,
         },
       ]
       : undefined;
@@ -431,8 +431,8 @@ export class StickerBotService {
     };
   }
 
-  private searchMarketplace(ownerId: string, search: MarketplaceSearch): BotActionResult {
-    const offers = this.repository.listMarketplaceTradeOffers(ownerId, search);
+  private async searchMarketplace(ownerId: string, search: MarketplaceSearch): Promise<BotActionResult> {
+    const offers = await this.repository.listMarketplaceTradeOffers(ownerId, search);
 
     if (offers.length === 0) {
       return {
@@ -444,8 +444,11 @@ export class StickerBotService {
 
     const lines = [
       search.mineOnly ? 'Your marketplace offers:' : 'Marketplace:',
-      ...offers.map((offer) => this.formatMarketplaceTradeOffer(offer)),
     ];
+
+    for (const offer of offers) {
+      lines.push(await this.formatMarketplaceTradeOffer(offer));
+    }
 
     return {
       reply: lines.join('\n\n'),
@@ -455,8 +458,8 @@ export class StickerBotService {
     };
   }
 
-  private prepareTradeProposal(ownerId: string, tradeId: string): BotActionResult {
-    const compatibility = this.repository.getCompatibleTradePairs(tradeId, ownerId);
+  private async prepareTradeProposal(ownerId: string, tradeId: string): Promise<BotActionResult> {
+    const compatibility = await this.repository.getCompatibleTradePairs(tradeId, ownerId);
 
     if (compatibility.error || !compatibility.offer || !compatibility.pairs) {
       return { reply: compatibility.error ?? 'Could not prepare this trade.' };
@@ -509,14 +512,14 @@ export class StickerBotService {
     };
   }
 
-  private handleTradeGiveSelection(ownerId: string, tradeId: string, giveKey: string): BotActionResult {
+  private async handleTradeGiveSelection(ownerId: string, tradeId: string, giveKey: string): Promise<BotActionResult> {
     const selectedGive = stickerFromKey(giveKey);
 
     if (!selectedGive) {
       return { reply: 'Invalid sticker selection.' };
     }
 
-    const compatibility = this.repository.getCompatibleTradePairs(tradeId, ownerId);
+    const compatibility = await this.repository.getCompatibleTradePairs(tradeId, ownerId);
 
     if (compatibility.error || !compatibility.offer || !compatibility.pairs) {
       return { reply: compatibility.error ?? 'Could not prepare this trade.' };
@@ -549,14 +552,14 @@ export class StickerBotService {
     };
   }
 
-  private handleTradeWantSelection(ownerId: string, tradeId: string, wantKey: string): BotActionResult {
+  private async handleTradeWantSelection(ownerId: string, tradeId: string, wantKey: string): Promise<BotActionResult> {
     const selectedWant = stickerFromKey(wantKey);
 
     if (!selectedWant) {
       return { reply: 'Invalid sticker selection.' };
     }
 
-    const compatibility = this.repository.getCompatibleTradePairs(tradeId, ownerId);
+    const compatibility = await this.repository.getCompatibleTradePairs(tradeId, ownerId);
 
     if (compatibility.error || !compatibility.offer || !compatibility.pairs) {
       return { reply: compatibility.error ?? 'Could not prepare this trade.' };
@@ -580,15 +583,15 @@ export class StickerBotService {
     });
   }
 
-  private submitTradeProposal(ownerId: string, tradeId: string, pair: TradePair): BotActionResult {
-    const result = this.repository.reserveTradeOffer(tradeId, ownerId, pair);
+  private async submitTradeProposal(ownerId: string, tradeId: string, pair: TradePair): Promise<BotActionResult> {
+    const result = await this.repository.reserveTradeOffer(tradeId, ownerId, pair);
 
     if (result.error || !result.offer || !result.offer.resolvedGive || !result.offer.resolvedWant) {
       return { reply: result.error ?? 'Could not submit the trade proposal.' };
     }
 
-    const ownerDisplayName = this.getDisplayName(result.offer.ownerId);
-    const takerDisplayName = this.getDisplayName(ownerId);
+    const ownerDisplayName = await this.getDisplayName(result.offer.ownerId);
+    const takerDisplayName = await this.getDisplayName(ownerId);
 
     return {
       reply: `Trade proposal sent to ${ownerDisplayName}.`,
@@ -613,8 +616,8 @@ export class StickerBotService {
     };
   }
 
-  private acceptTradeCoordination(ownerId: string, tradeId: string): BotActionResult {
-    const result = this.repository.acceptTradeOffer(tradeId, ownerId);
+  private async acceptTradeCoordination(ownerId: string, tradeId: string): Promise<BotActionResult> {
+    const result = await this.repository.acceptTradeOffer(tradeId, ownerId);
 
     if (result.error || !result.offer || !result.offer.reservedByOwnerId) {
       return { reply: result.error ?? 'Could not accept coordination.' };
@@ -626,16 +629,16 @@ export class StickerBotService {
       outboundMessages: [
         {
           chatId: result.offer.reservedByOwnerId,
-          text: `${this.getDisplayName(ownerId)} accepted coordination for trade #${result.offer.id}. Press Trade completed after the in-person swap.`,
+          text: `${await this.getDisplayName(ownerId)} accepted coordination for trade #${result.offer.id}. Press Trade completed after the in-person swap.`,
           replyMarkup: this.buildTradeCompletedKeyboard(result.offer.id),
         },
       ],
     };
   }
 
-  private declineTradeCoordination(ownerId: string, tradeId: string): BotActionResult {
-    const existingOffer = this.repository.getTradeOffer(tradeId);
-    const result = this.repository.declineTradeOffer(tradeId, ownerId);
+  private async declineTradeCoordination(ownerId: string, tradeId: string): Promise<BotActionResult> {
+    const existingOffer = await this.repository.getTradeOffer(tradeId);
+    const result = await this.repository.declineTradeOffer(tradeId, ownerId);
 
     if (result.error || !result.offer) {
       return { reply: result.error ?? 'Could not decline coordination.' };
@@ -647,15 +650,15 @@ export class StickerBotService {
         ? [
           {
             chatId: existingOffer.reservedByOwnerId,
-            text: `${this.getDisplayName(ownerId)} declined your proposal for trade #${tradeId}.`,
+            text: `${await this.getDisplayName(ownerId)} declined your proposal for trade #${tradeId}.`,
           },
         ]
         : undefined,
     };
   }
 
-  private confirmTradeCompleted(ownerId: string, tradeId: string): BotActionResult {
-    const result = this.repository.confirmTradeOfferCompleted(tradeId, ownerId);
+  private async confirmTradeCompleted(ownerId: string, tradeId: string): Promise<BotActionResult> {
+    const result = await this.repository.confirmTradeOfferCompleted(tradeId, ownerId);
 
     if (result.error || !result.offer) {
       return { reply: result.error ?? 'Could not confirm completion.' };
@@ -689,7 +692,7 @@ export class StickerBotService {
           ? [
             {
               chatId: counterpartOwnerId,
-              text: `${this.getDisplayName(ownerId)} marked trade #${tradeId} as completed. Confirm when your in-person swap is done.`,
+              text: `${await this.getDisplayName(ownerId)} marked trade #${tradeId} as completed. Confirm when your in-person swap is done.`,
               replyMarkup: this.buildTradeCompletedKeyboard(tradeId),
             },
           ]
@@ -700,9 +703,9 @@ export class StickerBotService {
     return { reply: 'Completion updated.' };
   }
 
-  private formatMarketplaceTradeOffer(offer: TradeOffer): string {
-    const ownerDisplayName = this.getDisplayName(offer.ownerId);
-    const collection = this.repository.getCollectionSummaryById(offer.collectionId);
+  private async formatMarketplaceTradeOffer(offer: TradeOffer): Promise<string> {
+    const ownerDisplayName = await this.getDisplayName(offer.ownerId);
+    const collection = await this.repository.getCollectionSummaryById(offer.collectionId);
     const header = `#${offer.id} ${ownerDisplayName} gives ${formatTradeSelector(offer.give)} for ${formatTradeSelector(offer.want)}`;
     const metadata = [
       collection ? `Album: ${collection.name}` : undefined,
@@ -712,10 +715,10 @@ export class StickerBotService {
     return `${header}\n${metadata}`;
   }
 
-  private formatTradeOfferForOwner(offer: TradeOffer): string {
-    const collection = this.repository.getCollectionSummaryById(offer.collectionId);
+  private async formatTradeOfferForOwner(offer: TradeOffer): Promise<string> {
+    const collection = await this.repository.getCollectionSummaryById(offer.collectionId);
     const status = offer.status === 'active'
-      ? this.repository.isTradeOfferCurrentlyValid(offer.id)
+      ? await this.repository.isTradeOfferCurrentlyValid(offer.id)
         ? 'active'
         : 'active, hidden'
       : offer.status === 'pending_confirmation'
@@ -731,7 +734,7 @@ export class StickerBotService {
 
     if (offer.status === 'pending_confirmation' && offer.resolvedGive && offer.resolvedWant && offer.reservedByOwnerId) {
       lines.push(
-        `${this.getDisplayName(offer.reservedByOwnerId)} proposes: you give ${formatSticker(offer.resolvedGive)}, they give ${formatSticker(offer.resolvedWant)}.`,
+        `${await this.getDisplayName(offer.reservedByOwnerId)} proposes: you give ${formatSticker(offer.resolvedGive)}, they give ${formatSticker(offer.resolvedWant)}.`,
       );
     }
 
@@ -836,31 +839,31 @@ export class StickerBotService {
     return sortStickers([...map.values()]);
   }
 
-  private getDisplayName(ownerId: string | undefined): string {
+  private async getDisplayName(ownerId: string | undefined): Promise<string> {
     if (!ownerId) {
       return 'Unknown user';
     }
 
-    return this.repository.getProfile(ownerId)?.displayName ?? ownerId;
+    return (await this.repository.getProfile(ownerId))?.displayName ?? ownerId;
   }
 
   private formatShortDate(timestamp: string): string {
     return timestamp.slice(0, 10);
   }
 
-  private querySticker(
+  private async querySticker(
     ownerId: string,
     sticker: StickerRef,
     showNames: boolean,
     language: BotLanguage,
-  ): string {
+  ): Promise<string> {
     const validationMessage = this.validateSticker(sticker, language);
 
     if (validationMessage) {
       return validationMessage;
     }
 
-    const quantity = this.repository.getQuantity(ownerId, sticker);
+    const quantity = await this.repository.getQuantity(ownerId, sticker);
     const label = formatSticker(sticker, { includeName: showNames });
 
     if (quantity <= 0) {
@@ -870,13 +873,13 @@ export class StickerBotService {
     return t(language, 'stickerOwned', { label, quantity });
   }
 
-  private queryCountry(
+  private async queryCountry(
     ownerId: string,
     countryCode: string,
     showNames: boolean,
     language: BotLanguage,
-  ): string {
-    const stats = this.getCountryStats(ownerId, countryCode);
+  ): Promise<string> {
+    const stats = await this.getCountryStats(ownerId, countryCode);
 
     if (!stats) {
       return t(language, 'unknownCountry', { country: countryCode });
@@ -910,12 +913,12 @@ export class StickerBotService {
     return lines.join('\n');
   }
 
-  private addSticker(
+  private async addSticker(
     ownerId: string,
     sticker: StickerRef,
     showNames: boolean,
     language: BotLanguage,
-  ): string {
+  ): Promise<string> {
     const validationMessage = this.validateSticker(sticker, language);
 
     if (validationMessage) {
@@ -923,9 +926,9 @@ export class StickerBotService {
     }
 
     const command = new AddStickerCommand(this.repository, ownerId, sticker);
-    const result = command.execute();
+    const result = await command.execute();
 
-    this.recordHistory(ownerId, 'add', result);
+    await this.recordHistory(ownerId, 'add', result);
 
     const label = formatSticker(sticker, { includeName: showNames });
     const duplicateText = result.currentQuantity > 1
@@ -939,12 +942,12 @@ export class StickerBotService {
     });
   }
 
-  private removeSticker(
+  private async removeSticker(
     ownerId: string,
     sticker: StickerRef,
     showNames: boolean,
     language: BotLanguage,
-  ): string {
+  ): Promise<string> {
     const validationMessage = this.validateSticker(sticker, language);
 
     if (validationMessage) {
@@ -952,14 +955,14 @@ export class StickerBotService {
     }
 
     const command = new RemoveStickerCommand(this.repository, ownerId, sticker);
-    const result = command.execute();
+    const result = await command.execute();
     const label = formatSticker(sticker, { includeName: showNames });
 
     if (!result.changed) {
       return t(language, 'cannotRemove', { label });
     }
 
-    this.recordHistory(ownerId, 'remove', result);
+    await this.recordHistory(ownerId, 'remove', result);
 
     return t(language, 'stickerRemoved', {
       label,
@@ -967,8 +970,8 @@ export class StickerBotService {
     });
   }
 
-  private undoLast(ownerId: string, language: BotLanguage): string {
-    const entry = this.repository.undoLast(ownerId);
+  private async undoLast(ownerId: string, language: BotLanguage): Promise<string> {
+    const entry = await this.repository.undoLast(ownerId);
 
     if (!entry) {
       return t(language, 'nothingToUndo');
@@ -984,17 +987,17 @@ export class StickerBotService {
     });
   }
 
-  private showMissing(
+  private async showMissing(
     ownerId: string,
     countryCode: string | undefined,
     showNames: boolean,
     language: BotLanguage,
-  ): string {
+  ): Promise<string> {
     if (!countryCode) {
       return t(language, 'missingNeedsCountry');
     }
 
-    const stats = this.getCountryStats(ownerId, countryCode);
+    const stats = await this.getCountryStats(ownerId, countryCode);
 
     if (!stats) {
       return t(language, 'unknownCountry', { country: countryCode });
@@ -1010,13 +1013,13 @@ export class StickerBotService {
     })}`;
   }
 
-  private showDuplicates(
+  private async showDuplicates(
     ownerId: string,
     countryCode: string | undefined,
     showNames: boolean,
     language: BotLanguage,
-  ): string {
-    const duplicates = Object.entries(this.repository.getStickerQuantities(ownerId))
+  ): Promise<string> {
+    const duplicates = Object.entries(await this.repository.getStickerQuantities(ownerId))
       .map(([key, quantity]) => ({
         sticker: stickerFromKey(key),
         quantity,
@@ -1040,8 +1043,8 @@ export class StickerBotService {
     return t(language, 'duplicatesList', { stickers: formatted });
   }
 
-  private showProgress(ownerId: string, language: BotLanguage): string {
-    const quantities = this.repository.getStickerQuantities(ownerId);
+  private async showProgress(ownerId: string, language: BotLanguage): Promise<string> {
+    const quantities = await this.repository.getStickerQuantities(ownerId);
     const knownEntries = Object.entries(quantities)
       .map(([key, quantity]) => ({
         sticker: stickerFromKey(key),
@@ -1070,12 +1073,12 @@ export class StickerBotService {
     ].join('\n');
   }
 
-  private shareAlbum(
+  private async shareAlbum(
     ownerId: string,
     targetUsername: string,
     language: BotLanguage,
-  ): BotActionResult {
-    const result = this.repository.createShareRequest(ownerId, targetUsername);
+  ): Promise<BotActionResult> {
+    const result = await this.repository.createShareRequest(ownerId, targetUsername);
 
     if (result.error || !result.request) {
       return {
@@ -1084,9 +1087,9 @@ export class StickerBotService {
       };
     }
 
-    const fromProfile = this.repository.getProfile(ownerId);
+    const fromProfile = await this.repository.getProfile(ownerId);
     const inviterName = fromProfile?.displayName ?? ownerId;
-    const recipientLanguage = this.getLanguage(result.request.toOwnerId) ?? language;
+    const recipientLanguage = await this.getLanguage(result.request.toOwnerId) ?? language;
 
     return {
       reply: t(language, 'shareSent', { username: targetUsername }),
@@ -1113,14 +1116,14 @@ export class StickerBotService {
     };
   }
 
-  private compareUser(
+  private async compareUser(
     ownerId: string,
     targetUsername: string,
     countryCode: string | undefined,
     showNames: boolean,
     language: BotLanguage,
-  ): BotActionResult {
-    const targetProfile = this.repository.findProfileByUsername(targetUsername);
+  ): Promise<BotActionResult> {
+    const targetProfile = await this.repository.findProfileByUsername(targetUsername);
 
     if (!targetProfile) {
       return {
@@ -1132,7 +1135,7 @@ export class StickerBotService {
       return { reply: t(language, 'compareSelf') };
     }
 
-    const targetAlbums = this.repository.listAlbums(targetProfile.ownerId);
+    const targetAlbums = await this.repository.listAlbums(targetProfile.ownerId);
     const targetDisplayName = targetProfile.displayName ?? `@${targetUsername}`;
 
     if (targetAlbums.length === 0) {
@@ -1160,15 +1163,15 @@ export class StickerBotService {
     };
   }
 
-  private compareSelectedAlbum(
+  private async compareSelectedAlbum(
     ownerId: string,
     targetUsername: string,
     albumIndex: number,
     countryCode: string | undefined,
     showNames: boolean,
     language: BotLanguage,
-  ): BotActionResult {
-    const targetProfile = this.repository.findProfileByUsername(targetUsername);
+  ): Promise<BotActionResult> {
+    const targetProfile = await this.repository.findProfileByUsername(targetUsername);
 
     if (!targetProfile) {
       return {
@@ -1176,14 +1179,14 @@ export class StickerBotService {
       };
     }
 
-    const targetAlbum = this.repository.listAlbums(targetProfile.ownerId)[albumIndex - 1];
+    const targetAlbum = (await this.repository.listAlbums(targetProfile.ownerId))[albumIndex - 1];
 
     if (!targetAlbum) {
       return { reply: t(language, 'compareAlbumNotFound') };
     }
 
-    const targetSnapshot = this.repository.getAlbumSnapshot(targetProfile.ownerId, targetAlbum.id);
-    const activeAlbum = this.repository.getActiveAlbum(ownerId);
+    const targetSnapshot = await this.repository.getAlbumSnapshot(targetProfile.ownerId, targetAlbum.id);
+    const activeAlbum = await this.repository.getActiveAlbum(ownerId);
 
     if (!activeAlbum) {
       return { reply: t(language, 'commandRequiresActiveAlbum') };
@@ -1196,7 +1199,7 @@ export class StickerBotService {
     return {
       reply: this.buildCompareReply({
         activeAlbum,
-        activeQuantities: this.repository.getStickerQuantities(ownerId),
+        activeQuantities: await this.repository.getStickerQuantities(ownerId),
         targetAlbum: targetSnapshot.album,
         targetDisplayName: targetProfile.displayName ?? `@${targetUsername}`,
         targetQuantities: targetSnapshot.stickerQuantities,
@@ -1302,7 +1305,7 @@ export class StickerBotService {
       .join(', ');
   }
 
-  private getCountryStats(ownerId: string, countryCode: string): CountryStats | null {
+  private async getCountryStats(ownerId: string, countryCode: string): Promise<CountryStats | null> {
     const country = getCatalogEntry(countryCode);
 
     if (!country) {
@@ -1310,7 +1313,7 @@ export class StickerBotService {
     }
 
     const allStickers = getAllStickerRefs(country.code);
-    const quantities = this.repository.getStickerQuantities(ownerId);
+    const quantities = await this.repository.getStickerQuantities(ownerId);
     const owned = allStickers.filter((sticker) => (quantities[stickerKey(sticker)] ?? 0) > 0);
     const missing = allStickers.filter((sticker) => (quantities[stickerKey(sticker)] ?? 0) <= 0);
 
@@ -1367,8 +1370,8 @@ export class StickerBotService {
     return null;
   }
 
-  private getLanguage(ownerId: string): BotLanguage | undefined {
-    return this.repository.getProfile(ownerId)?.language;
+  private async getLanguage(ownerId: string): Promise<BotLanguage | undefined> {
+    return (await this.repository.getProfile(ownerId))?.language;
   }
 
   private languageSelectionReply(): BotActionResult {
@@ -1378,9 +1381,9 @@ export class StickerBotService {
     };
   }
 
-  private startMenuReply(ownerId: string, language: BotLanguage): BotActionResult {
-    const activeAlbum = this.repository.getActiveAlbum(ownerId);
-    const userAlbums = this.repository.listAlbums(ownerId);
+  private async startMenuReply(ownerId: string, language: BotLanguage): Promise<BotActionResult> {
+    const activeAlbum = await this.repository.getActiveAlbum(ownerId);
+    const userAlbums = await this.repository.listAlbums(ownerId);
     const lines = [
       t(language, 'startMenu'),
       activeAlbum
@@ -1423,9 +1426,9 @@ export class StickerBotService {
     };
   }
 
-  private albumListReply(ownerId: string, language: BotLanguage): BotActionResult {
-    const userAlbums = this.repository.listAlbums(ownerId);
-    const activeAlbum = this.repository.getActiveAlbum(ownerId);
+  private async albumListReply(ownerId: string, language: BotLanguage): Promise<BotActionResult> {
+    const userAlbums = await this.repository.listAlbums(ownerId);
+    const activeAlbum = await this.repository.getActiveAlbum(ownerId);
     const lines = [t(language, 'albumsTitle')];
 
     if (activeAlbum) {
@@ -1443,7 +1446,7 @@ export class StickerBotService {
 
       return {
         reply: lines.join('\n'),
-        replyMarkup: this.startMenuReply(ownerId, language).replyMarkup,
+        replyMarkup: (await this.startMenuReply(ownerId, language)).replyMarkup,
       };
     }
 
@@ -1463,14 +1466,14 @@ export class StickerBotService {
     };
   }
 
-  private createAlbum(ownerId: string, albumName: string, language: BotLanguage): BotActionResult {
+  private async createAlbum(ownerId: string, albumName: string, language: BotLanguage): Promise<BotActionResult> {
     const normalizedAlbumName = albumName.trim();
 
     if (!normalizedAlbumName) {
       return { reply: t(language, 'albumNameRequired') };
     }
 
-    const album = this.repository.createAlbum(
+    const album = await this.repository.createAlbum(
       ownerId,
       AVAILABLE_ALBUM_TEMPLATES[0].slug,
       normalizedAlbumName,
@@ -1485,14 +1488,14 @@ export class StickerBotService {
     };
   }
 
-  private selectAlbum(ownerId: string, selector: string, language: BotLanguage): BotActionResult {
-    const match = this.findAlbum(ownerId, selector);
+  private async selectAlbum(ownerId: string, selector: string, language: BotLanguage): Promise<BotActionResult> {
+    const match = await this.findAlbum(ownerId, selector);
 
     if (match.error) {
       return { reply: this.translateAlbumLookupError(match.error, language) };
     }
 
-    const album = this.repository.setActiveAlbum(ownerId, match.album.id);
+    const album = await this.repository.setActiveAlbum(ownerId, match.album.id);
 
     if (!album) {
       return { reply: t(language, 'albumSelectFailed') };
@@ -1503,12 +1506,12 @@ export class StickerBotService {
     };
   }
 
-  private renameAlbum(
+  private async renameAlbum(
     ownerId: string,
     albumName: string,
     selector: string | undefined,
     language: BotLanguage,
-  ): BotActionResult {
+  ): Promise<BotActionResult> {
     const normalizedAlbumName = albumName.trim();
 
     if (!normalizedAlbumName) {
@@ -1516,14 +1519,14 @@ export class StickerBotService {
     }
 
     const match = selector
-      ? this.findAlbum(ownerId, selector)
-      : this.findActiveAlbum(ownerId);
+      ? await this.findAlbum(ownerId, selector)
+      : await this.findActiveAlbum(ownerId);
 
     if (match.error) {
       return { reply: this.translateAlbumLookupError(match.error, language) };
     }
 
-    const result = this.repository.renameAlbum(ownerId, match.album.id, normalizedAlbumName);
+    const result = await this.repository.renameAlbum(ownerId, match.album.id, normalizedAlbumName);
 
     if (result.error || !result.album) {
       return {
@@ -1537,20 +1540,20 @@ export class StickerBotService {
     };
   }
 
-  private deleteAlbum(
+  private async deleteAlbum(
     ownerId: string,
     selector: string | undefined,
     language: BotLanguage,
-  ): BotActionResult {
+  ): Promise<BotActionResult> {
     const match = selector
-      ? this.findAlbum(ownerId, selector)
-      : this.findActiveAlbum(ownerId);
+      ? await this.findAlbum(ownerId, selector)
+      : await this.findActiveAlbum(ownerId);
 
     if (match.error) {
       return { reply: this.translateAlbumLookupError(match.error, language) };
     }
 
-    const result = this.repository.deleteAlbum(ownerId, match.album.id);
+    const result = await this.repository.deleteAlbum(ownerId, match.album.id);
 
     if (result.error || !result.album) {
       return {
@@ -1561,18 +1564,18 @@ export class StickerBotService {
 
     return {
       reply: t(language, 'albumDeleted', { albumName: result.album.name }),
-      replyMarkup: this.startMenuReply(ownerId, language).replyMarkup,
+      replyMarkup: (await this.startMenuReply(ownerId, language)).replyMarkup,
     };
   }
 
-  private leaveAlbum(ownerId: string, language: BotLanguage): BotActionResult {
-    const match = this.findActiveAlbum(ownerId);
+  private async leaveAlbum(ownerId: string, language: BotLanguage): Promise<BotActionResult> {
+    const match = await this.findActiveAlbum(ownerId);
 
     if (match.error) {
       return { reply: this.translateAlbumLookupError(match.error, language) };
     }
 
-    const result = this.repository.leaveAlbum(ownerId, match.album.id);
+    const result = await this.repository.leaveAlbum(ownerId, match.album.id);
 
     if (result.error || !result.album) {
       return {
@@ -1583,30 +1586,30 @@ export class StickerBotService {
 
     return {
       reply: t(language, 'albumLeft', { albumName: result.album.name }),
-      replyMarkup: this.startMenuReply(ownerId, language).replyMarkup,
+      replyMarkup: (await this.startMenuReply(ownerId, language)).replyMarkup,
     };
   }
 
-  private findActiveAlbum(ownerId: string): {
-    album: NonNullable<ReturnType<CollectionRepository['getActiveAlbum']>>;
+  private async findActiveAlbum(ownerId: string): Promise<{
+    album: CollectionSummary;
     error?: never;
   } | {
     album?: never;
     error: 'not_found';
-  } {
-    const album = this.repository.getActiveAlbum(ownerId);
+  }> {
+    const album = await this.repository.getActiveAlbum(ownerId);
 
     return album ? { album } : { error: 'not_found' };
   }
 
-  private findAlbum(ownerId: string, selector: string): {
-    album: NonNullable<ReturnType<CollectionRepository['getActiveAlbum']>>;
+  private async findAlbum(ownerId: string, selector: string): Promise<{
+    album: CollectionSummary;
     error?: never;
   } | {
     album?: never;
     error: 'not_found' | 'ambiguous';
-  } {
-    const albums = this.repository.listAlbums(ownerId);
+  }> {
+    const albums = await this.repository.listAlbums(ownerId);
     const normalizedSelector = selector.trim().toLowerCase();
     const numberSelector = Number(normalizedSelector);
 
@@ -1638,7 +1641,7 @@ export class StickerBotService {
   }
 
   private formatAlbumLine(
-    album: ReturnType<CollectionRepository['listAlbums']>[number],
+    album: CollectionSummary,
     index: number,
     language: BotLanguage,
   ): string {
@@ -1763,7 +1766,7 @@ export class StickerBotService {
     return error;
   }
 
-  private recordHistory(
+  private async recordHistory(
     ownerId: string,
     action: StickerHistoryAction,
     result: {
@@ -1772,7 +1775,7 @@ export class StickerBotService {
       currentQuantity: number;
       changed: boolean;
     },
-  ): void {
+  ): Promise<void> {
     if (!result.changed) {
       return;
     }
@@ -1785,7 +1788,7 @@ export class StickerBotService {
       timestamp: new Date().toISOString(),
     };
 
-    this.repository.recordHistory(ownerId, entry);
+    await this.repository.recordHistory(ownerId, entry);
   }
 }
 

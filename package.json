@@ -5,9 +5,9 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
-    "test": "node --test --import tsx \"tests/**/*.test.ts\"",
-    "test:unit": "node --test --import tsx \"tests/unit/**/*.test.ts\"",
-    "test:integration": "node --test --import tsx \"tests/integration/**/*.test.ts\"",
+    "test": "node --test --test-concurrency=1 --import tsx \"tests/**/*.test.ts\"",
+    "test:unit": "node --test --test-concurrency=1 --import tsx \"tests/unit/**/*.test.ts\"",
+    "test:integration": "node --test --test-concurrency=1 --import tsx \"tests/integration/**/*.test.ts\"",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "db:up": "docker compose up -d db",

@@ -10,6 +10,6 @@ export type StickerCommandResult = {
 };
 
 export interface ReversibleStickerCommand {
-  execute(): StickerCommandResult;
-  undo(): StickerCommandResult;
+  execute(): Promise<StickerCommandResult>;
+  undo(): Promise<StickerCommandResult>;
 }

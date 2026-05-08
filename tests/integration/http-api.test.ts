@@ -1,15 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import fs from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
+
+import { Pool } from 'pg';
+
+import { CollectionRepository } from '../../src/repositories/collection.repository';
+
+const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
+
+const TRUNCATE_SQL = `
+  TRUNCATE user_album_events, user_album_items, trade_offers,
+    collector_active_albums, user_album_members, album_share_requests,
+    user_albums, collector_profiles RESTART IDENTITY CASCADE;
+  ALTER SEQUENCE trade_offer_sequence RESTART WITH 1
+`;
 
 type TestServer = {
   baseUrl: string;
-  dataFilePath: string;
 };
 
 type JsonResponse = {
@@ -18,12 +27,9 @@ type JsonResponse = {
 };
 
 const withHttpServer = async (run: (server: TestServer) => Promise<void>): Promise<void> => {
-  const previousCollectionDataPath = process.env.COLLECTION_DATA_PATH;
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'album-bot-http-'));
-  const dataFilePath = path.join(directory, 'collection.json');
   let server: Server | undefined;
 
-  process.env.COLLECTION_DATA_PATH = dataFilePath;
+  await testPool.query(TRUNCATE_SQL);
 
   try {
     const { default: app } = await import('../../src/app');
@@ -33,10 +39,7 @@ const withHttpServer = async (run: (server: TestServer) => Promise<void>): Promi
 
     const address = server.address() as AddressInfo;
 
-    await run({
-      baseUrl: `http://127.0.0.1:${address.port}`,
-      dataFilePath,
-    });
+    await run({ baseUrl: `http://127.0.0.1:${address.port}` });
   } finally {
     if (server?.listening) {
       await new Promise<void>((resolve, reject) => {
@@ -50,14 +53,6 @@ const withHttpServer = async (run: (server: TestServer) => Promise<void>): Promi
         });
       });
     }
-
-    if (previousCollectionDataPath === undefined) {
-      delete process.env.COLLECTION_DATA_PATH;
-    } else {
-      process.env.COLLECTION_DATA_PATH = previousCollectionDataPath;
-    }
-
-    fs.rmSync(directory, { recursive: true, force: true });
   }
 };
 
@@ -104,18 +99,13 @@ const responseData = (body: unknown): Record<string, unknown> => {
   return asRecord(envelope.data);
 };
 
-const readStoredData = (dataFilePath: string): Record<string, unknown> =>
-  JSON.parse(fs.readFileSync(dataFilePath, 'utf8')) as Record<string, unknown>;
-
 const seedEnglishProfile = async (
-  dataFilePath: string,
   ownerId: string,
   username: string,
 ): Promise<void> => {
-  const { CollectionRepository } = await import('../../src/repositories/collection.repository');
-  const repository = new CollectionRepository(dataFilePath);
+  const repository = new CollectionRepository(testPool);
 
-  repository.registerProfile({
+  await repository.registerProfile({
     ownerId,
     username,
     language: 'en',
@@ -136,7 +126,6 @@ test('POST /api/bot/message rejects missing text', async () => withHttpServer(as
 
 test('POST /api/bot/message registers user and returns language selection then start flow', async () => withHttpServer(async ({
   baseUrl,
-  dataFilePath,
 }) => {
   const ownerId = 'language-flow-owner';
   const first = await postBotMessage(baseUrl, {
@@ -154,16 +143,18 @@ test('POST /api/bot/message registers user and returns language selection then s
   assert.equal(asRecord(firstData.parsed).intent, 'start');
   assert.match(JSON.stringify(firstData.replyMarkup), /lang:en/);
 
-  const storedAfterRegistration = readStoredData(dataFilePath);
-  const profiles = asRecord(storedAfterRegistration.profiles);
-  const profile = asRecord(profiles[ownerId]);
+  const profileResult = await testPool.query(
+    'SELECT * FROM collector_profiles WHERE telegram_chat_id = $1',
+    [ownerId],
+  );
+  const profile = profileResult.rows[0];
 
-  assert.equal(profile.ownerId, ownerId);
-  assert.equal(profile.username, 'http_user');
-  assert.equal(profile.displayName, '@http_user');
-  assert.equal(profile.language, undefined);
+  assert.equal(profile.telegram_chat_id, ownerId);
+  assert.equal(profile.telegram_username, 'http_user');
+  assert.equal(profile.display_name, '@http_user');
+  assert.equal(profile.language_code, null);
 
-  await seedEnglishProfile(dataFilePath, ownerId, 'HTTP_User');
+  await seedEnglishProfile(ownerId, 'HTTP_User');
 
   const started = await postBotMessage(baseUrl, {
     ownerId,
@@ -182,11 +173,10 @@ test('POST /api/bot/message registers user and returns language selection then s
 
 test('POST /api/bot/message can create and select albums through messages', async () => withHttpServer(async ({
   baseUrl,
-  dataFilePath,
 }) => {
   const ownerId = 'album-flow-owner';
 
-  await seedEnglishProfile(dataFilePath, ownerId, 'album_http');
+  await seedEnglishProfile(ownerId, 'album_http');
 
   const firstAlbum = await postBotMessage(baseUrl, {
     ownerId,
@@ -228,13 +218,16 @@ test('POST /api/bot/message can create and select albums through messages', asyn
   assert.match(startReply, /1\. Road to 2026/);
   assert.match(startReply, /2\. Swap Duplicates/);
 
-  const storedData = readStoredData(dataFilePath);
-  const ownerCollections = asRecord(storedData.ownerCollections);
-  const collections = asRecord(storedData.collections);
-  const activeCollectionId = String(ownerCollections[ownerId]);
-  const activeCollection = asRecord(collections[activeCollectionId]);
+  const activeAlbumResult = await testPool.query(
+    `SELECT ua.name
+     FROM collector_active_albums caa
+     JOIN collector_profiles cp ON cp.id = caa.collector_id
+     JOIN user_albums ua ON ua.id = caa.user_album_id
+     WHERE cp.telegram_chat_id = $1`,
+    [ownerId],
+  );
 
-  assert.equal(activeCollection.name, 'Road to 2026');
+  assert.equal(activeAlbumResult.rows[0].name, 'Road to 2026');
 }));
 
 test('unknown routes return JSON 404 response', async () => withHttpServer(async ({ baseUrl }) => {
@@ -263,3 +256,7 @@ test('error middleware returns JSON when request parsing fails before a route ha
   assert.equal(envelope.success, false);
   assert.match(String(envelope.message), /JSON|Unexpected|Expected/i);
 }));
+
+test.after(async () => {
+  await testPool.end();
+});

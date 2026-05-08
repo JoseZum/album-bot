@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+
+import { Pool } from 'pg';
 
 import { type StickerRef } from '../../src/catalog/world-cup.catalog';
 import { parseStickerMessage } from '../../src/parsers/sticker-message.parser';
@@ -16,34 +15,37 @@ const ARG4: StickerRef = { countryCode: 'ARG', number: 4 };
 const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
 const BRA5: StickerRef = { countryCode: 'BRA', number: 5 };
 
-const createHarness = () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'album-bot-unit-trade-'));
-  const repository = new CollectionRepository(path.join(directory, 'collection.json'));
+const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
-  const cleanup = () => fs.rmSync(directory, { recursive: true, force: true });
+const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
 
-  return {
-    repository,
-    cleanup,
-  };
+const createHarness = async () => {
+  await testPool.query(TRUNCATE_SQL);
+  const repository = new CollectionRepository(testPool);
+
+  return { repository };
 };
 
-const registerUser = (
+const registerUser = async (
   repository: CollectionRepository,
   ownerId: string,
   username: string,
 ) => {
-  repository.registerProfile({
+  await repository.registerProfile({
     ownerId,
     username,
     language: 'en',
   });
-  const album = repository.createAlbum(ownerId, ALBUM_SLUG, `${username} album`);
+  const album = await repository.createAlbum(ownerId, ALBUM_SLUG, `${username} album`);
 
   assert.ok(album);
 };
 
 const offerIds = (offers: Array<{ id: string }>) => offers.map((offer) => offer.id);
+
+test.after(async () => {
+  await testPool.end();
+});
 
 test('parser accepts marketplace direction filters and rejects bare sticker filters', () => {
   const giveParsed = parseStickerMessage('marketplace -give arg4');
@@ -94,82 +96,74 @@ test('parser accepts unscoped and country-scoped wildcard trade operands', () =>
   }
 });
 
-test('repository marketplace direction filters keep wildcard give and need sides separate', () => {
-  const { repository, cleanup } = createHarness();
+test('repository marketplace direction filters keep wildcard give and need sides separate', async () => {
+  const { repository } = await createHarness();
 
-  try {
-    registerUser(repository, 'owner-a', 'tester_a');
-    registerUser(repository, 'owner-b', 'tester_b');
+  await registerUser(repository, 'owner-a', 'tester_a');
+  await registerUser(repository, 'owner-b', 'tester_b');
 
-    repository.adjustQuantity('owner-a', ARG2, 2);
+  await repository.adjustQuantity('owner-a', ARG2, 2);
 
-    const created = repository.createTradeOffer(
-      'owner-a',
-      { kind: 'duplicate' },
-      { kind: 'missing' },
-    );
+  const created = await repository.createTradeOffer(
+    'owner-a',
+    { kind: 'duplicate' },
+    { kind: 'missing' },
+  );
 
-    assert.ok(created.offer);
-    assert.deepEqual(
-      offerIds(repository.listMarketplaceTradeOffers('owner-b', { giveSticker: ARG2 })),
-      ['T1'],
-    );
-    assert.deepEqual(
-      offerIds(repository.listMarketplaceTradeOffers('owner-b', { giveSticker: BRA4 })),
-      [],
-    );
-    assert.deepEqual(
-      offerIds(repository.listMarketplaceTradeOffers('owner-b', { needSticker: BRA4 })),
-      ['T1'],
-    );
-    assert.deepEqual(
-      offerIds(repository.listMarketplaceTradeOffers('owner-b', { needSticker: ARG2 })),
-      [],
-    );
-  } finally {
-    cleanup();
-  }
+  assert.ok(created.offer);
+  assert.deepEqual(
+    offerIds(await repository.listMarketplaceTradeOffers('owner-b', { giveSticker: ARG2 })),
+    ['T1'],
+  );
+  assert.deepEqual(
+    offerIds(await repository.listMarketplaceTradeOffers('owner-b', { giveSticker: BRA4 })),
+    [],
+  );
+  assert.deepEqual(
+    offerIds(await repository.listMarketplaceTradeOffers('owner-b', { needSticker: BRA4 })),
+    ['T1'],
+  );
+  assert.deepEqual(
+    offerIds(await repository.listMarketplaceTradeOffers('owner-b', { needSticker: ARG2 })),
+    [],
+  );
 });
 
-test('repository resolves wildcard duplicate and missing selectors against current inventories', () => {
-  const { repository, cleanup } = createHarness();
+test('repository resolves wildcard duplicate and missing selectors against current inventories', async () => {
+  const { repository } = await createHarness();
 
-  try {
-    registerUser(repository, 'owner-a', 'tester_a');
-    registerUser(repository, 'owner-b', 'tester_b');
+  await registerUser(repository, 'owner-a', 'tester_a');
+  await registerUser(repository, 'owner-b', 'tester_b');
 
-    repository.adjustQuantity('owner-a', ARG2, 2);
-    repository.adjustQuantity('owner-a', ARG3, 1);
-    repository.adjustQuantity('owner-a', BRA4, 1);
-    repository.adjustQuantity('owner-b', BRA4, 1);
-    repository.adjustQuantity('owner-b', BRA5, 1);
+  await repository.adjustQuantity('owner-a', ARG2, 2);
+  await repository.adjustQuantity('owner-a', ARG3, 1);
+  await repository.adjustQuantity('owner-a', BRA4, 1);
+  await repository.adjustQuantity('owner-b', BRA4, 1);
+  await repository.adjustQuantity('owner-b', BRA5, 1);
 
-    const created = repository.createTradeOffer(
-      'owner-a',
-      { kind: 'duplicate', countryCode: 'ARG' },
-      { kind: 'missing', countryCode: 'BRA' },
-    );
+  const created = await repository.createTradeOffer(
+    'owner-a',
+    { kind: 'duplicate', countryCode: 'ARG' },
+    { kind: 'missing', countryCode: 'BRA' },
+  );
 
-    assert.ok(created.offer);
+  assert.ok(created.offer);
 
-    const compatibility = repository.getCompatibleTradePairs('T1', 'owner-b');
+  const compatibility = await repository.getCompatibleTradePairs('T1', 'owner-b');
 
-    assert.ok(compatibility.pairs);
-    assert.deepEqual(compatibility.pairs, [
-      {
-        give: ARG2,
-        want: BRA5,
-      },
-    ]);
+  assert.ok(compatibility.pairs);
+  assert.deepEqual(compatibility.pairs, [
+    {
+      give: ARG2,
+      want: BRA5,
+    },
+  ]);
 
-    const reservation = repository.reserveTradeOffer('T1', 'owner-b');
+  const reservation = await repository.reserveTradeOffer('T1', 'owner-b');
 
-    assert.equal(reservation.error, undefined);
-    assert.equal(reservation.offer?.status, 'pending_confirmation');
-    assert.equal(reservation.offer?.reservedByOwnerId, 'owner-b');
-    assert.deepEqual(reservation.offer?.resolvedGive, ARG2);
-    assert.deepEqual(reservation.offer?.resolvedWant, BRA5);
-  } finally {
-    cleanup();
-  }
+  assert.equal(reservation.error, undefined);
+  assert.equal(reservation.offer?.status, 'pending_confirmation');
+  assert.equal(reservation.offer?.reservedByOwnerId, 'owner-b');
+  assert.deepEqual(reservation.offer?.resolvedGive, ARG2);
+  assert.deepEqual(reservation.offer?.resolvedWant, BRA5);
 });

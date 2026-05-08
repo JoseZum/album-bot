@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+
+import { Pool } from 'pg';
 
 import { type StickerRef } from '../../src/catalog/world-cup.catalog';
 import {
@@ -20,68 +19,58 @@ const ARG10: StickerRef = { countryCode: 'ARG', number: 10 };
 const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
 
 type Harness = {
-  dataFilePath: string;
   repository: CollectionRepository;
   service: StickerBotService;
-  cleanup: () => void;
 };
 
-const createHarness = (): Harness => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'album-bot-service-'));
-  const dataFilePath = path.join(directory, 'collection.json');
-  const repository = new CollectionRepository(dataFilePath);
+const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
+
+const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
+
+const createHarness = async (): Promise<Harness> => {
+  await testPool.query(TRUNCATE_SQL);
+  const repository = new CollectionRepository(testPool);
   const service = new StickerBotService(repository);
 
-  return {
-    dataFilePath,
-    repository,
-    service,
-    cleanup: () => fs.rmSync(directory, { recursive: true, force: true }),
-  };
+  return { repository, service };
 };
 
-const withHarness = (run: (harness: Harness) => void): void => {
-  const harness = createHarness();
+test.after(async () => {
+  await testPool.end();
+});
 
-  try {
-    run(harness);
-  } finally {
-    harness.cleanup();
-  }
-};
-
-const registerUser = (
+const registerUser = async (
   service: StickerBotService,
   ownerId: string,
   username: string,
-): void => {
-  service.registerUser({
+): Promise<void> => {
+  await service.registerUser({
     ownerId,
     username,
     language: 'en',
   });
 };
 
-const createAlbum = (
+const createAlbum = async (
   repository: CollectionRepository,
   ownerId: string,
   name: string,
-): CollectionSummary => {
-  const album = repository.createAlbum(ownerId, ALBUM_SLUG, name);
+): Promise<CollectionSummary> => {
+  const album = await repository.createAlbum(ownerId, ALBUM_SLUG, name);
 
   assert.ok(album);
 
   return album;
 };
 
-const registerUserWithAlbum = (
+const registerUserWithAlbum = async (
   service: StickerBotService,
   repository: CollectionRepository,
   ownerId: string,
   username: string,
   albumName: string,
-): CollectionSummary => {
-  registerUser(service, ownerId, username);
+): Promise<CollectionSummary> => {
+  await registerUser(service, ownerId, username);
 
   return createAlbum(repository, ownerId, albumName);
 };
@@ -122,147 +111,143 @@ const findCallbackData = (markup: unknown, pattern: RegExp): string => {
   return match;
 };
 
-test('language selection gates messages until a language callback is handled', () => withHarness(({
-  repository,
-  service,
-}) => {
-  const blockedAdd = service.handleMessage('add arg4', 'owner-a');
+test('language selection gates messages until a language callback is handled', async () => {
+  const { repository, service } = await createHarness();
+
+  const blockedAdd = await service.handleMessage('add arg4', 'owner-a');
 
   assert.equal(blockedAdd.parsed.intent, 'addSticker');
   assert.equal(blockedAdd.reply, 'Choose your language.');
   assert.match(stringifyMarkup(blockedAdd.replyMarkup), /lang:en/);
-  assert.equal(repository.getProfile('owner-a'), undefined);
+  assert.equal(await repository.getProfile('owner-a'), undefined);
 
-  const blockedStart = service.handleMessage('/start', 'owner-a');
+  const blockedStart = await service.handleMessage('/start', 'owner-a');
 
   assert.equal(blockedStart.parsed.intent, 'start');
   assert.equal(blockedStart.reply, 'Choose your language.');
 
   assert.equal(
-    service.handleCallbackData('lang:unknown', 'owner-a').reply,
+    (await service.handleCallbackData('lang:unknown', 'owner-a')).reply,
     'Invalid action.',
   );
 
-  const selected = service.handleCallbackData('lang:en', 'owner-a');
+  const selected = await service.handleCallbackData('lang:en', 'owner-a');
 
   assert.match(selected.reply, /^Language set to English\.\n\nAlbum menu/);
   assert.match(selected.reply, /No active album yet\./);
   assert.match(stringifyMarkup(selected.replyMarkup), /album:create:panini-fifa-world-cup-2026/);
-  assert.equal(repository.getProfile('owner-a')?.language, 'en');
+  assert.equal((await repository.getProfile('owner-a'))?.language, 'en');
 
-  const albumRequired = service.handleMessage('progress', 'owner-a');
+  const albumRequired = await service.handleMessage('progress', 'owner-a');
 
   assert.equal(albumRequired.parsed.intent, 'progress');
   assert.match(albumRequired.reply, /^Create or select an album first\.\n\nAlbum menu/);
 
-  const languageMenu = service.handleMessage('language', 'owner-a');
+  const languageMenu = await service.handleMessage('language', 'owner-a');
 
   assert.equal(languageMenu.reply, 'Choose your language.');
   assert.match(stringifyMarkup(languageMenu.replyMarkup), /lang:es/);
-}));
+});
 
-test('start menu, album creation, selection, listing, and album callbacks use the repository state', () => withHarness(({
-  repository,
-  service,
-}) => {
-  assert.match(service.handleCallbackData('lang:en', 'owner-a').reply, /Language set to English/);
+test('start menu, album creation, selection, listing, and album callbacks use the repository state', async () => {
+  const { repository, service } = await createHarness();
 
-  const start = service.handleMessage('start', 'owner-a');
+  assert.match((await service.handleCallbackData('lang:en', 'owner-a')).reply, /Language set to English/);
+
+  const start = await service.handleMessage('start', 'owner-a');
 
   assert.equal(start.parsed.intent, 'start');
   assert.match(start.reply, /^Album menu\nNo active album yet\./);
   assert.match(stringifyMarkup(start.replyMarkup), /album:create:panini-fifa-world-cup-2026/);
 
-  const emptyList = service.handleMessage('albums', 'owner-a');
+  const emptyList = await service.handleMessage('albums', 'owner-a');
 
   assert.equal(emptyList.parsed.intent, 'albumList');
   assert.match(emptyList.reply, /^Albums\nNo active album yet\./);
   assert.match(emptyList.reply, /You do not have albums yet\./);
 
-  const customAlbum = service.handleMessage('new album Road to 2026', 'owner-a');
+  const customAlbum = await service.handleMessage('new album Road to 2026', 'owner-a');
 
   assert.equal(customAlbum.reply, 'Album created and selected: Road to 2026.');
-  assert.equal(repository.getActiveAlbum('owner-a')?.name, 'Road to 2026');
+  assert.equal((await repository.getActiveAlbum('owner-a'))?.name, 'Road to 2026');
 
-  const createdFromCallback = service.handleCallbackData(
+  const createdFromCallback = await service.handleCallbackData(
     'album:create:panini-fifa-world-cup-2026',
     'owner-a',
   );
 
   assert.equal(createdFromCallback.reply, 'Album created and selected: Panini FIFA World Cup 2026.');
-  assert.equal(repository.getActiveAlbum('owner-a')?.name, 'Panini FIFA World Cup 2026');
-  assert.equal(repository.listAlbums('owner-a').length, 2);
+  assert.equal((await repository.getActiveAlbum('owner-a'))?.name, 'Panini FIFA World Cup 2026');
+  assert.equal((await repository.listAlbums('owner-a')).length, 2);
 
-  const list = service.handleMessage('albums', 'owner-a');
+  const list = await service.handleMessage('albums', 'owner-a');
 
   assert.match(list.reply, /^Albums\nActive album: Panini FIFA World Cup 2026\./);
   assert.match(list.reply, /Road to 2026 \[owned\] \(1\)/);
   assert.match(list.reply, /Panini FIFA World Cup 2026 \[active, owned\] \(1\)/);
   assert.match(stringifyMarkup(list.replyMarkup), /album:select:/);
 
-  const selectedByName = service.handleMessage('select album Road', 'owner-a');
+  const selectedByName = await service.handleMessage('select album Road', 'owner-a');
 
   assert.equal(selectedByName.reply, 'Active album selected: Road to 2026.');
-  assert.equal(repository.getActiveAlbum('owner-a')?.name, 'Road to 2026');
+  assert.equal((await repository.getActiveAlbum('owner-a'))?.name, 'Road to 2026');
 
-  const paniniAlbum = repository
-    .listAlbums('owner-a')
+  const paniniAlbum = (await repository.listAlbums('owner-a'))
     .find((album) => album.name === 'Panini FIFA World Cup 2026');
 
   assert.ok(paniniAlbum);
 
-  const selectedByCallback = service.handleCallbackData(`album:select:${paniniAlbum.id}`, 'owner-a');
+  const selectedByCallback = await service.handleCallbackData(`album:select:${paniniAlbum.id}`, 'owner-a');
 
   assert.equal(selectedByCallback.reply, 'Active album selected: Panini FIFA World Cup 2026.');
-  assert.equal(repository.getActiveAlbum('owner-a')?.id, paniniAlbum.id);
-  assert.equal(service.handleCallbackData('album:select:not-found', 'owner-a').reply, 'Album action not found.');
-}));
+  assert.equal((await repository.getActiveAlbum('owner-a'))?.id, paniniAlbum.id);
+  assert.equal((await service.handleCallbackData('album:select:not-found', 'owner-a')).reply, 'Album action not found.');
+});
 
-test('add, remove, query, missing, duplicates, progress, and undo replies reflect inventory changes', () => withHarness(({
-  repository,
-  service,
-}) => {
-  registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+test('add, remove, query, missing, duplicates, progress, and undo replies reflect inventory changes', async () => {
+  const { repository, service } = await createHarness();
 
-  assert.equal(service.handleMessage('arg4', 'owner-a').reply, 'You do not have ARG 4.');
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  assert.equal((await service.handleMessage('arg4', 'owner-a')).reply, 'You do not have ARG 4.');
   assert.equal(
-    service.handleMessage('rm arg4', 'owner-a').reply,
+    (await service.handleMessage('rm arg4', 'owner-a')).reply,
     'You cannot remove ARG 4 because you do not have it.',
   );
   assert.equal(
-    service.handleMessage('missing', 'owner-a').reply,
+    (await service.handleMessage('missing', 'owner-a')).reply,
     'Send a country to see missing stickers, for example: missing arg.',
   );
   assert.equal(
-    service.handleMessage('arg21', 'owner-a').reply,
+    (await service.handleMessage('arg21', 'owner-a')).reply,
     'ARG 21 does not exist in the catalog. ARG goes from 1 to 20.',
   );
 
-  assert.equal(service.handleMessage('add arg2', 'owner-a').reply, 'ARG 2 added. You now have 1.');
+  assert.equal((await service.handleMessage('add arg2', 'owner-a')).reply, 'ARG 2 added. You now have 1.');
   assert.equal(
-    service.handleMessage('add arg2', 'owner-a').reply,
+    (await service.handleMessage('add arg2', 'owner-a')).reply,
     'ARG 2 added. You now have 2 (1 duplicate/s).',
   );
-  assert.equal(service.handleMessage('add arg4', 'owner-a').reply, 'ARG 4 added. You now have 1.');
-  assert.equal(service.handleMessage('arg4', 'owner-a').reply, 'You have ARG 4. Quantity: 1.');
+  assert.equal((await service.handleMessage('add arg4', 'owner-a')).reply, 'ARG 4 added. You now have 1.');
+  assert.equal((await service.handleMessage('arg4', 'owner-a')).reply, 'You have ARG 4. Quantity: 1.');
 
-  const country = service.handleMessage('arg', 'owner-a');
+  const country = await service.handleMessage('arg', 'owner-a');
 
   assert.match(country.reply, /^ARG Argentina\nYou have 2\/20 \(10%\)\.\nStickers: ARG 2, ARG 4\./);
   assert.match(country.reply, /Missing \(18\): ARG 1, ARG 3, ARG 5/);
 
-  assert.equal(service.handleMessage('duplicates', 'owner-a').reply, 'Duplicates: ARG 2 x2.');
-  assert.equal(service.handleMessage('duplicates arg', 'owner-a').reply, 'Duplicates: ARG 2 x2.');
+  assert.equal((await service.handleMessage('duplicates', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
+  assert.equal((await service.handleMessage('duplicates arg', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
   assert.equal(
-    service.handleMessage('duplicates bra', 'owner-a').reply,
+    (await service.handleMessage('duplicates bra', 'owner-a')).reply,
     'You do not have duplicates from BRA.',
   );
   assert.match(
-    service.handleMessage('missing arg', 'owner-a').reply,
+    (await service.handleMessage('missing arg', 'owner-a')).reply,
     /^ARG: Missing \(18\): ARG 1, ARG 3, ARG 5/,
   );
 
-  const progress = service.handleMessage('progress', 'owner-a');
+  const progress = await service.handleMessage('progress', 'owner-a');
 
   assert.equal(progress.reply, [
     'Overall progress',
@@ -271,51 +256,51 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
     'Started countries: 1/32.',
   ].join('\n'));
 
-  assert.equal(service.handleMessage('rm arg4', 'owner-a').reply, 'ARG 4 removed. You now have 0.');
-  assert.equal(repository.getQuantity('owner-a', ARG4), 0);
-  assert.equal(service.handleMessage('arg4', 'owner-a').reply, 'You do not have ARG 4.');
+  assert.equal((await service.handleMessage('rm arg4', 'owner-a')).reply, 'ARG 4 removed. You now have 0.');
+  assert.equal(await repository.getQuantity('owner-a', ARG4), 0);
+  assert.equal((await service.handleMessage('arg4', 'owner-a')).reply, 'You do not have ARG 4.');
 
   assert.equal(
-    service.handleMessage('undo', 'owner-a').reply,
+    (await service.handleMessage('undo', 'owner-a')).reply,
     'Undo applied: reverted the remove of ARG 4. You now have 1.',
   );
-  assert.equal(repository.getQuantity('owner-a', ARG4), 1);
+  assert.equal(await repository.getQuantity('owner-a', ARG4), 1);
   assert.equal(
-    service.handleMessage('undo', 'owner-a').reply,
+    (await service.handleMessage('undo', 'owner-a')).reply,
     'Undo applied: reverted the add of ARG 4. You now have 0.',
   );
-  assert.equal(repository.getQuantity('owner-a', ARG4), 0);
+  assert.equal(await repository.getQuantity('owner-a', ARG4), 0);
   assert.equal(
-    service.handleMessage('undo', 'owner-a').reply,
+    (await service.handleMessage('undo', 'owner-a')).reply,
     'Undo applied: reverted the add of ARG 2. You now have 1.',
   );
-  assert.equal(repository.getQuantity('owner-a', ARG2), 1);
+  assert.equal(await repository.getQuantity('owner-a', ARG2), 1);
   assert.equal(
-    service.handleMessage('undo', 'owner-a').reply,
+    (await service.handleMessage('undo', 'owner-a')).reply,
     'Undo applied: reverted the add of ARG 2. You now have 0.',
   );
-  assert.equal(repository.getQuantity('owner-a', ARG2), 0);
-  assert.equal(service.handleMessage('undo', 'owner-a').reply, 'There are no actions to undo.');
-}));
+  assert.equal(await repository.getQuantity('owner-a', ARG2), 0);
+  assert.equal((await service.handleMessage('undo', 'owner-a')).reply, 'There are no actions to undo.');
+});
 
-test('share flow sends outbound invitations and handles accept, decline, and error callbacks', () => withHarness(({
-  repository,
-  service,
-}) => {
-  const ownerAlbum = registerUserWithAlbum(
+test('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {
+  const { repository, service } = await createHarness();
+
+  const ownerAlbum = await registerUserWithAlbum(
     service,
     repository,
     'owner-a',
     'collector_a',
     'Alice Album',
   );
-  registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
-  registerUser(service, 'owner-c', 'collector_c');
 
-  repository.adjustQuantity('owner-a', ARG2, 1);
-  repository.adjustQuantity('owner-b', ARG4, 1);
+  await registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
+  await registerUser(service, 'owner-c', 'collector_c');
 
-  const shared = service.handleMessage('share @collector_b', 'owner-a');
+  await repository.adjustQuantity('owner-a', ARG2, 1);
+  await repository.adjustQuantity('owner-b', ARG4, 1);
+
+  const shared = await service.handleMessage('share @collector_b', 'owner-a');
 
   assert.equal(shared.reply, 'Request sent to @collector_b to share the active album.');
   assert.equal(shared.outboundMessages?.length, 1);
@@ -326,7 +311,7 @@ test('share flow sends outbound invitations and handles accept, decline, and err
 
   assert.match(stringifyMarkup(shared.outboundMessages?.[0]?.replyMarkup), /share:decline:/);
 
-  const accepted = service.handleCallbackData(acceptCallback, 'owner-b');
+  const accepted = await service.handleCallbackData(acceptCallback, 'owner-b');
 
   assert.equal(accepted.reply, 'Yes. You now share the same album.');
   assert.equal(accepted.outboundMessages?.[0]?.chatId, 'owner-a');
@@ -334,63 +319,62 @@ test('share flow sends outbound invitations and handles accept, decline, and err
     accepted.outboundMessages?.[0]?.text,
     '@collector_b accepted sharing the album with you.',
   );
-  assert.equal(repository.getActiveAlbum('owner-b')?.id, ownerAlbum.id);
-  assert.equal(repository.getActiveAlbum('owner-b')?.memberCount, 2);
-  assert.equal(repository.getQuantity('owner-a', ARG4), 1);
-  assert.equal(repository.getQuantity('owner-b', ARG2), 1);
+  assert.equal((await repository.getActiveAlbum('owner-b'))?.id, ownerAlbum.id);
+  assert.equal((await repository.getActiveAlbum('owner-b'))?.memberCount, 2);
+  assert.equal(await repository.getQuantity('owner-a', ARG4), 1);
+  assert.equal(await repository.getQuantity('owner-b', ARG2), 1);
 
   assert.equal(
-    service.handleCallbackData(acceptCallback, 'owner-b').reply,
+    (await service.handleCallbackData(acceptCallback, 'owner-b')).reply,
     'This request was already answered.',
   );
   assert.equal(
-    service.handleMessage('share @collector_b', 'owner-a').reply,
+    (await service.handleMessage('share @collector_b', 'owner-a')).reply,
     'You already share the active album with @collector_b.',
   );
   assert.equal(
-    service.handleMessage('share @collector_a', 'owner-a').reply,
+    (await service.handleMessage('share @collector_a', 'owner-a')).reply,
     'You cannot share the album with yourself.',
   );
-  const unknownShareTarget = service.handleMessage('share @unknown_user', 'owner-a');
+  const unknownShareTarget = await service.handleMessage('share @unknown_user', 'owner-a');
 
   assert.match(unknownShareTarget.reply, /^I do not know @unknown_user\./);
   assert.match(unknownShareTarget.reply, /open the bot and send \/start first\./);
 
-  const declinedRequest = service.handleMessage('share @collector_c', 'owner-a');
+  const declinedRequest = await service.handleMessage('share @collector_c', 'owner-a');
   const declineCallback = findCallbackData(
     declinedRequest.outboundMessages?.[0]?.replyMarkup,
     /^share:decline:/,
   );
-  const declined = service.handleShareResponse(declineCallback, 'owner-c');
+  const declined = await service.handleShareResponse(declineCallback, 'owner-c');
 
   assert.equal(declined.reply, 'No. Request declined.');
   assert.equal(declined.outboundMessages?.[0]?.chatId, 'owner-a');
   assert.equal(declined.outboundMessages?.[0]?.text, '@collector_c declined sharing the album.');
-  assert.equal(service.handleShareResponse('not-a-share-callback', 'owner-c').reply, 'Invalid album sharing response.');
+  assert.equal((await service.handleShareResponse('not-a-share-callback', 'owner-c')).reply, 'Invalid album sharing response.');
   assert.equal(
-    service.handleCallbackData('share:accept:not-found', 'owner-c').reply,
+    (await service.handleCallbackData('share:accept:not-found', 'owner-c')).reply,
     'Shared album request not found.',
   );
-}));
+});
 
-test('compare flow offers target album callbacks and renders duplicate-for-missing matches', () => withHarness(({
-  repository,
-  service,
-}) => {
-  registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
-  registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
-  registerUser(service, 'owner-c', 'empty_user');
+test('compare flow offers target album callbacks and renders duplicate-for-missing matches', async () => {
+  const { repository, service } = await createHarness();
 
-  repository.adjustQuantity('owner-a', ARG1, 2);
-  repository.adjustQuantity('owner-a', BRA4, 2);
-  repository.adjustQuantity('owner-b', ARG10, 2);
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
+  await registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
+  await registerUser(service, 'owner-c', 'empty_user');
 
-  const chooseTarget = service.handleMessage('compare @collector_b', 'owner-a');
+  await repository.adjustQuantity('owner-a', ARG1, 2);
+  await repository.adjustQuantity('owner-a', BRA4, 2);
+  await repository.adjustQuantity('owner-b', ARG10, 2);
+
+  const chooseTarget = await service.handleMessage('compare @collector_b', 'owner-a');
 
   assert.equal(chooseTarget.reply, 'Choose which album from @collector_b to compare.');
   const allCountriesCallback = findCallbackData(chooseTarget.replyMarkup, /^compare:collector_b:1:all:0$/);
 
-  const allCountries = service.handleCallbackData(allCountriesCallback, 'owner-a');
+  const allCountries = await service.handleCallbackData(allCountriesCallback, 'owner-a');
 
   assert.equal(allCountries.reply, [
     'Compare Alice Album with Bob Album from @collector_b.',
@@ -399,12 +383,12 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
     'You can give @collector_b: ARG 1 x1, BRA 4 x1.',
   ].join('\n'));
 
-  const chooseScopedWithNames = service.handleMessage('compare arg @collector_b -names', 'owner-a');
+  const chooseScopedWithNames = await service.handleMessage('compare arg @collector_b -names', 'owner-a');
   const argWithNamesCallback = findCallbackData(
     chooseScopedWithNames.replyMarkup,
     /^compare:collector_b:1:ARG:1$/,
   );
-  const argWithNames = service.handleCallbackData(argWithNamesCallback, 'owner-a');
+  const argWithNames = await service.handleCallbackData(argWithNamesCallback, 'owner-a');
 
   assert.equal(argWithNames.reply, [
     'Compare Alice Album with Bob Album from @collector_b.',
@@ -414,73 +398,70 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
   ].join('\n'));
 
   assert.equal(
-    service.handleMessage('compare @unknown_user', 'owner-a').reply,
+    (await service.handleMessage('compare @unknown_user', 'owner-a')).reply,
     'I do not know @unknown_user. That person must open the bot and send /start first.',
   );
   assert.equal(
-    service.handleMessage('compare @collector_a', 'owner-a').reply,
+    (await service.handleMessage('compare @collector_a', 'owner-a')).reply,
     'Choose another user to compare albums.',
   );
   assert.equal(
-    service.handleMessage('compare @empty_user', 'owner-a').reply,
+    (await service.handleMessage('compare @empty_user', 'owner-a')).reply,
     '@empty_user has no albums yet.',
   );
   assert.equal(
-    service.handleCallbackData('compare:collector_b:99:all:0', 'owner-a').reply,
+    (await service.handleCallbackData('compare:collector_b:99:all:0', 'owner-a')).reply,
     'I could not find that album.',
   );
-}));
+});
 
-test('help and unknown messages return guidance without requiring an active album', () => withHarness(({
-  service,
-}) => {
-  service.handleCallbackData('lang:en', 'owner-a');
+test('help and unknown messages return guidance without requiring an active album', async () => {
+  const { service } = await createHarness();
 
-  const help = service.handleMessage('help', 'owner-a');
+  await service.handleCallbackData('lang:en', 'owner-a');
+
+  const help = await service.handleMessage('help', 'owner-a');
 
   assert.equal(help.parsed.intent, 'help');
   assert.match(help.reply, /^Available commands:/);
   assert.match(help.reply, /share @username/);
   assert.match(help.reply, /compare @username/);
 
-  const unknown = service.handleMessage('what is this', 'owner-a');
+  const unknown = await service.handleMessage('what is this', 'owner-a');
 
   assert.equal(unknown.parsed.intent, 'unknown');
   assert.match(unknown.reply, /^I could not detect a country, number, or command\.\n\nAvailable commands:/);
 
-  const empty = service.handleMessage('   ', 'owner-a');
+  const empty = await service.handleMessage('   ', 'owner-a');
 
   assert.equal(empty.parsed.intent, 'unknown');
   assert.match(empty.reply, /^Empty message\.\n\nAvailable commands:/);
   assert.equal(
-    service.handleCallbackData('totally:unknown', 'owner-a').reply,
+    (await service.handleCallbackData('totally:unknown', 'owner-a')).reply,
     'Invalid album sharing response.',
   );
-}));
+});
 
-test('trade marketplace smoke test posts and lists an active offer without exercising the full lifecycle', () => withHarness(({
-  dataFilePath,
-  repository,
-  service,
-}) => {
-  registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
-  registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
+test('trade marketplace smoke test posts and lists an active offer without exercising the full lifecycle', async () => {
+  const { repository, service } = await createHarness();
 
-  repository.adjustQuantity('owner-a', ARG2, 1);
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
+  await registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
 
-  const created = service.handleMessage('trade arg2 arg4', 'owner-a');
+  await repository.adjustQuantity('owner-a', ARG2, 1);
+
+  const created = await service.handleMessage('trade arg2 arg4', 'owner-a');
 
   assert.equal(created.reply, 'Trade posted: you give ARG 2 and want ARG 4.');
-  assert.equal(repository.getTradeOffer('T1')?.status, 'active');
-  assert.ok(fs.existsSync(dataFilePath));
+  assert.equal((await repository.getTradeOffer('T1'))?.status, 'active');
 
-  const mine = service.handleMessage('trades', 'owner-a');
+  const mine = await service.handleMessage('trades', 'owner-a');
 
   assert.match(mine.reply, /^Your trades:\n\n#T1 \[active\] you give ARG 2 and want ARG 4/);
   assert.match(stringifyMarkup(mine.replyMarkup), /trade:cancel:T1/);
 
-  const marketplace = service.handleMessage('marketplace', 'owner-b');
+  const marketplace = await service.handleMessage('marketplace', 'owner-b');
 
   assert.match(marketplace.reply, /^Marketplace:\n\n#T1 @collector_a gives ARG 2 for ARG 4/);
   assert.match(stringifyMarkup(marketplace.replyMarkup), /trade:propose:T1/);
-}));
+});

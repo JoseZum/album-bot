@@ -197,6 +197,12 @@ function normalizeAlbumName(name: string | undefined): string | undefined {
   return n || undefined;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
 // ---------------------------------------------------------------------------
 // CollectionRepository
 // ---------------------------------------------------------------------------
@@ -634,6 +640,10 @@ export class CollectionRepository {
   }
 
   async setActiveAlbum(ownerId: string, collectionId: string): Promise<CollectionSummary | null> {
+    if (!isUuid(collectionId)) {
+      return null;
+    }
+
     const normalizedOwnerId = normalizeOwnerId(ownerId);
 
     // Check user is a member
@@ -938,6 +948,10 @@ export class CollectionRepository {
     requestId: string,
     responderOwnerId: string,
   ): Promise<{ request?: ShareRequest; fromProfile?: StoredProfile; error?: string }> {
+    if (!isUuid(requestId)) {
+      return { error: 'Solicitud de album compartido no encontrada.' };
+    }
+
     const normalizedResponderOwnerId = normalizeOwnerId(responderOwnerId);
 
     const requestResult = await this.db.query<Record<string, unknown>>(
@@ -1059,6 +1073,10 @@ export class CollectionRepository {
     requestId: string,
     responderOwnerId: string,
   ): Promise<{ request?: ShareRequest; fromProfile?: StoredProfile; error?: string }> {
+    if (!isUuid(requestId)) {
+      return { error: 'Solicitud de album compartido no encontrada.' };
+    }
+
     const normalizedResponderOwnerId = normalizeOwnerId(responderOwnerId);
 
     const requestResult = await this.db.query<Record<string, unknown>>(

@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+
+import { Pool } from 'pg';
 
 import {
   formatSticker,
@@ -32,18 +31,23 @@ const CRC7: StickerRef = { countryCode: 'CRC', number: 7 };
 const FRA10: StickerRef = { countryCode: 'FRA', number: 10 };
 const USA2: StickerRef = { countryCode: 'USA', number: 2 };
 
-const createRepositoryHarness = () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'album-bot-unit-catalog-parser-'));
-  const repository = new CollectionRepository(path.join(directory, 'collection.json'));
-  const album = repository.createAlbum(OWNER_ID, ALBUM_SLUG, 'Unit test album');
+const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
+
+const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
+
+const createRepositoryHarness = async () => {
+  await testPool.query(TRUNCATE_SQL);
+  const repository = new CollectionRepository(testPool);
+  const album = await repository.createAlbum(OWNER_ID, ALBUM_SLUG, 'Unit test album');
 
   assert.ok(album);
 
-  return {
-    repository,
-    cleanup: () => fs.rmSync(directory, { recursive: true, force: true }),
-  };
+  return { repository };
 };
+
+test.after(async () => {
+  await testPool.end();
+});
 
 test('catalog normalizes parser input consistently', () => {
   assert.equal(normalizeForParsing('  México.Costa_Rica  '), 'mexico costa rica');
@@ -255,74 +259,66 @@ test('parser reports invalid sticker commands and unknown input', () => {
   });
 });
 
-test('AddStickerCommand increments quantity and undo reverses it', () => {
-  const { repository, cleanup } = createRepositoryHarness();
+test('AddStickerCommand increments quantity and undo reverses it', async () => {
+  const { repository } = await createRepositoryHarness();
 
-  try {
-    const command = new AddStickerCommand(repository, OWNER_ID, BRA3);
+  const command = new AddStickerCommand(repository, OWNER_ID, BRA3);
 
-    assert.deepEqual(command.execute(), {
-      action: 'add',
-      sticker: BRA3,
-      previousQuantity: 0,
-      currentQuantity: 1,
-      changed: true,
-    });
-    assert.equal(repository.getQuantity(OWNER_ID, BRA3), 1);
-    assert.deepEqual(command.execute(), {
-      action: 'add',
-      sticker: BRA3,
-      previousQuantity: 1,
-      currentQuantity: 2,
-      changed: true,
-    });
-    assert.equal(repository.getQuantity(OWNER_ID, BRA3), 2);
-    assert.deepEqual(command.undo(), {
-      action: 'remove',
-      sticker: BRA3,
-      previousQuantity: 2,
-      currentQuantity: 1,
-      changed: true,
-    });
-    assert.equal(repository.getQuantity(OWNER_ID, BRA3), 1);
-  } finally {
-    cleanup();
-  }
+  assert.deepEqual(await command.execute(), {
+    action: 'add',
+    sticker: BRA3,
+    previousQuantity: 0,
+    currentQuantity: 1,
+    changed: true,
+  });
+  assert.equal(await repository.getQuantity(OWNER_ID, BRA3), 1);
+  assert.deepEqual(await command.execute(), {
+    action: 'add',
+    sticker: BRA3,
+    previousQuantity: 1,
+    currentQuantity: 2,
+    changed: true,
+  });
+  assert.equal(await repository.getQuantity(OWNER_ID, BRA3), 2);
+  assert.deepEqual(await command.undo(), {
+    action: 'remove',
+    sticker: BRA3,
+    previousQuantity: 2,
+    currentQuantity: 1,
+    changed: true,
+  });
+  assert.equal(await repository.getQuantity(OWNER_ID, BRA3), 1);
 });
 
-test('RemoveStickerCommand decrements quantity, clamps at zero, and undo restores', () => {
-  const { repository, cleanup } = createRepositoryHarness();
+test('RemoveStickerCommand decrements quantity, clamps at zero, and undo restores', async () => {
+  const { repository } = await createRepositoryHarness();
 
-  try {
-    repository.adjustQuantity(OWNER_ID, FRA10, 1);
+  await repository.adjustQuantity(OWNER_ID, FRA10, 1);
 
-    const command = new RemoveStickerCommand(repository, OWNER_ID, FRA10);
+  const command = new RemoveStickerCommand(repository, OWNER_ID, FRA10);
 
-    assert.deepEqual(command.execute(), {
-      action: 'remove',
-      sticker: FRA10,
-      previousQuantity: 1,
-      currentQuantity: 0,
-      changed: true,
-    });
-    assert.equal(repository.getQuantity(OWNER_ID, FRA10), 0);
-    assert.deepEqual(command.execute(), {
-      action: 'remove',
-      sticker: FRA10,
-      previousQuantity: 0,
-      currentQuantity: 0,
-      changed: false,
-    });
-    assert.equal(repository.getQuantity(OWNER_ID, FRA10), 0);
-    assert.deepEqual(command.undo(), {
-      action: 'add',
-      sticker: FRA10,
-      previousQuantity: 0,
-      currentQuantity: 1,
-      changed: true,
-    });
-    assert.equal(repository.getQuantity(OWNER_ID, FRA10), 1);
-  } finally {
-    cleanup();
-  }
+  assert.deepEqual(await command.execute(), {
+    action: 'remove',
+    sticker: FRA10,
+    previousQuantity: 1,
+    currentQuantity: 0,
+    changed: true,
+  });
+  assert.equal(await repository.getQuantity(OWNER_ID, FRA10), 0);
+  assert.deepEqual(await command.execute(), {
+    action: 'remove',
+    sticker: FRA10,
+    previousQuantity: 0,
+    currentQuantity: 0,
+    changed: false,
+  });
+  assert.equal(await repository.getQuantity(OWNER_ID, FRA10), 0);
+  assert.deepEqual(await command.undo(), {
+    action: 'add',
+    sticker: FRA10,
+    previousQuantity: 0,
+    currentQuantity: 1,
+    changed: true,
+  });
+  assert.equal(await repository.getQuantity(OWNER_ID, FRA10), 1);
 });
