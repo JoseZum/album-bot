@@ -315,73 +315,147 @@ FROM albums
 LEFT JOIN stickers ON stickers.album_id = albums.id
 GROUP BY albums.id;
 
+CREATE OR REPLACE VIEW v_user_albums AS
+SELECT
+  collector_profiles.id AS collector_id,
+  collector_profiles.telegram_chat_id,
+  collector_profiles.telegram_username,
+  user_albums.id AS user_album_id,
+  user_albums.name AS user_album_name,
+  albums.slug AS album_slug,
+  albums.name AS album_template_name,
+  user_albums.owner_id,
+  owner_profiles.telegram_username AS owner_telegram_username,
+  owner_profiles.display_name AS owner_display_name,
+  user_album_members.role,
+  user_albums.owner_id <> collector_profiles.id AS is_shared,
+  collector_active_albums.user_album_id IS NOT NULL AS is_active,
+  user_album_members.joined_at,
+  user_albums.created_at,
+  user_albums.updated_at
+FROM collector_profiles
+JOIN user_album_members
+  ON user_album_members.collector_id = collector_profiles.id
+  AND user_album_members.left_at IS NULL
+JOIN user_albums
+  ON user_albums.id = user_album_members.user_album_id
+  AND user_albums.deleted_at IS NULL
+JOIN albums ON albums.id = user_albums.album_id
+JOIN collector_profiles AS owner_profiles ON owner_profiles.id = user_albums.owner_id
+LEFT JOIN collector_active_albums
+  ON collector_active_albums.collector_id = collector_profiles.id
+  AND collector_active_albums.user_album_id = user_albums.id;
+
 CREATE OR REPLACE VIEW v_collection_progress AS
 SELECT
   collector_profiles.id AS collector_id,
   collector_profiles.telegram_chat_id,
+  collector_profiles.telegram_username,
+  user_albums.id AS user_album_id,
+  user_albums.name AS user_album_name,
   albums.slug AS album_slug,
+  albums.name AS album_template_name,
+  user_albums.owner_id,
+  owner_profiles.telegram_username AS owner_telegram_username,
+  owner_profiles.display_name AS owner_display_name,
+  user_albums.owner_id <> collector_profiles.id AS is_shared,
+  collector_active_albums.user_album_id IS NOT NULL AS is_active,
   count(stickers.code) AS total_stickers,
-  count(collection_items.sticker_code) FILTER (
-    WHERE collection_items.variant_code = 'BASE'
-      AND collection_items.quantity > 0
+  count(user_album_items.sticker_code) FILTER (
+    WHERE user_album_items.variant_code = 'BASE'
+      AND user_album_items.quantity > 0
   ) AS owned_stickers,
-  count(stickers.code) - count(collection_items.sticker_code) FILTER (
-    WHERE collection_items.variant_code = 'BASE'
-      AND collection_items.quantity > 0
+  count(stickers.code) - count(user_album_items.sticker_code) FILTER (
+    WHERE user_album_items.variant_code = 'BASE'
+      AND user_album_items.quantity > 0
   ) AS missing_stickers,
-  coalesce(sum(GREATEST(collection_items.quantity - 1, 0)) FILTER (
-    WHERE collection_items.variant_code = 'BASE'
+  coalesce(sum(GREATEST(user_album_items.quantity - 1, 0)) FILTER (
+    WHERE user_album_items.variant_code = 'BASE'
   ), 0) AS duplicate_stickers,
   round(
     (
-      count(collection_items.sticker_code) FILTER (
-        WHERE collection_items.variant_code = 'BASE'
-          AND collection_items.quantity > 0
+      count(user_album_items.sticker_code) FILTER (
+        WHERE user_album_items.variant_code = 'BASE'
+          AND user_album_items.quantity > 0
       )::numeric
       / nullif(count(stickers.code), 0)
     ) * 100,
     2
   ) AS completion_percentage
 FROM collector_profiles
-CROSS JOIN albums
+JOIN user_album_members
+  ON user_album_members.collector_id = collector_profiles.id
+  AND user_album_members.left_at IS NULL
+JOIN user_albums
+  ON user_albums.id = user_album_members.user_album_id
+  AND user_albums.deleted_at IS NULL
+JOIN albums ON albums.id = user_albums.album_id
+JOIN collector_profiles AS owner_profiles ON owner_profiles.id = user_albums.owner_id
 JOIN stickers ON stickers.album_id = albums.id
-LEFT JOIN collection_items
-  ON collection_items.collector_id = collector_profiles.id
-  AND collection_items.sticker_code = stickers.code
-  AND collection_items.variant_code = 'BASE'
-GROUP BY collector_profiles.id, albums.id;
+LEFT JOIN user_album_items
+  ON user_album_items.user_album_id = user_albums.id
+  AND user_album_items.sticker_code = stickers.code
+  AND user_album_items.variant_code = 'BASE'
+LEFT JOIN collector_active_albums
+  ON collector_active_albums.collector_id = collector_profiles.id
+  AND collector_active_albums.user_album_id = user_albums.id
+GROUP BY collector_profiles.id, user_albums.id, albums.id, owner_profiles.id, collector_active_albums.user_album_id;
 
 CREATE OR REPLACE VIEW v_missing_stickers AS
 SELECT
   collector_profiles.id AS collector_id,
   collector_profiles.telegram_chat_id,
+  collector_profiles.telegram_username,
+  user_albums.id AS user_album_id,
+  user_albums.name AS user_album_name,
+  albums.slug AS album_slug,
+  user_albums.owner_id <> collector_profiles.id AS is_shared,
   stickers.code,
   stickers.canonical_code,
   stickers.context_name,
   stickers.subject,
   stickers.sticker_type_code
 FROM collector_profiles
-CROSS JOIN stickers
-LEFT JOIN collection_items
-  ON collection_items.collector_id = collector_profiles.id
-  AND collection_items.sticker_code = stickers.code
-  AND collection_items.variant_code = 'BASE'
-WHERE coalesce(collection_items.quantity, 0) = 0;
+JOIN user_album_members
+  ON user_album_members.collector_id = collector_profiles.id
+  AND user_album_members.left_at IS NULL
+JOIN user_albums
+  ON user_albums.id = user_album_members.user_album_id
+  AND user_albums.deleted_at IS NULL
+JOIN albums ON albums.id = user_albums.album_id
+JOIN stickers ON stickers.album_id = albums.id
+LEFT JOIN user_album_items
+  ON user_album_items.user_album_id = user_albums.id
+  AND user_album_items.sticker_code = stickers.code
+  AND user_album_items.variant_code = 'BASE'
+WHERE coalesce(user_album_items.quantity, 0) = 0;
 
 CREATE OR REPLACE VIEW v_duplicate_stickers AS
 SELECT
-  collection_items.collector_id,
+  collector_profiles.id AS collector_id,
   collector_profiles.telegram_chat_id,
-  collection_items.sticker_code AS code,
+  collector_profiles.telegram_username,
+  user_albums.id AS user_album_id,
+  user_albums.name AS user_album_name,
+  albums.slug AS album_slug,
+  user_albums.owner_id <> collector_profiles.id AS is_shared,
+  user_album_items.sticker_code AS code,
   stickers.canonical_code,
-  collection_items.variant_code,
+  user_album_items.variant_code,
   stickers.context_name,
   stickers.subject,
-  collection_items.quantity,
-  collection_items.quantity - 1 AS duplicate_quantity
-FROM collection_items
-JOIN collector_profiles ON collector_profiles.id = collection_items.collector_id
-JOIN stickers ON stickers.code = collection_items.sticker_code
-WHERE collection_items.quantity > 1;
+  user_album_items.quantity,
+  user_album_items.quantity - 1 AS duplicate_quantity
+FROM collector_profiles
+JOIN user_album_members
+  ON user_album_members.collector_id = collector_profiles.id
+  AND user_album_members.left_at IS NULL
+JOIN user_albums
+  ON user_albums.id = user_album_members.user_album_id
+  AND user_albums.deleted_at IS NULL
+JOIN albums ON albums.id = user_albums.album_id
+JOIN user_album_items ON user_album_items.user_album_id = user_albums.id
+JOIN stickers ON stickers.code = user_album_items.sticker_code
+WHERE user_album_items.quantity > 1;
 
 COMMIT;
