@@ -7,6 +7,7 @@ import {
   getAllStickerRefs,
   getCatalogEntry,
   getCatalogTotal,
+  getCountryFlag,
   isKnownSticker,
   sortStickers,
   stickerFromKey,
@@ -66,6 +67,7 @@ type CountryStats = {
   owned: StickerRef[];
   missing: StickerRef[];
   percentage: string;
+  quantities: Record<string, number>;
 };
 
 type TradeCandidate = {
@@ -902,11 +904,14 @@ export class StickerBotService {
       return t(language, 'unknownCountry', { country: countryCode });
     }
 
-    const lines = [
-      t(language, 'countryHeader', {
-        countryCode: stats.countryCode,
-        countryName: stats.countryName,
-      }),
+    const country = getCatalogEntry(stats.countryCode)!;
+    const totalDuplicates = stats.owned.reduce((sum, sticker) => {
+      const qty = stats.quantities[stickerKey(sticker)] ?? 0;
+
+      return sum + Math.max(qty - 1, 0);
+    }, 0);
+
+    const summaryParts = [
       t(language, 'countryProgress', {
         owned: stats.owned.length,
         total: stats.total,
@@ -914,18 +919,36 @@ export class StickerBotService {
       }),
     ];
 
-    if (stats.owned.length > 0) {
-      lines.push(t(language, 'ownedStickers', {
-        stickers: this.formatStickerList(stats.owned, showNames, language),
-      }));
-    } else {
-      lines.push(t(language, 'noCountryStickers', { countryCode: stats.countryCode }));
+    if (totalDuplicates > 0) {
+      summaryParts.push(t(language, 'countryDuplicates', { duplicates: totalDuplicates }));
     }
 
-    lines.push(t(language, 'missingStickers', {
-      count: stats.missing.length,
-      stickers: this.formatStickerList(stats.missing, showNames, language),
-    }));
+    const lines = [
+      t(language, 'countryHeader', {
+        flag: getCountryFlag(stats.countryCode),
+        countryCode: stats.countryCode,
+        countryName: stats.countryName,
+      }),
+      summaryParts.join(' · '),
+      '',
+    ];
+
+    const numWidth = String(stats.total).length;
+
+    for (let i = 1; i <= stats.total; i++) {
+      const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
+      const qty = stats.quantities[stickerKey(sticker)] ?? 0;
+      const name = showNames ? country.names[i] : undefined;
+      const numStr = String(i).padStart(numWidth, ' ');
+      const nameStr = name ? ` ${name}` : '';
+
+      if (qty > 0) {
+        const dupeStr = qty > 1 ? ` ×${qty}` : '';
+        lines.push(`${numStr}${nameStr} ✅${dupeStr}`);
+      } else {
+        lines.push(`${numStr}${nameStr} ❌`);
+      }
+    }
 
     return lines.join('\n');
   }
@@ -1341,6 +1364,7 @@ export class StickerBotService {
       owned: sortStickers(owned),
       missing: sortStickers(missing),
       percentage: this.formatPercentage(owned.length, country.totalStickers),
+      quantities,
     };
   }
 

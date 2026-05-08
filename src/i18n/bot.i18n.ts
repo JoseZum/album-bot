@@ -60,6 +60,7 @@ type TranslationKey =
   | 'nothingToUndo'
   | 'undoApplied'
   | 'missingNeedsCountry'
+  | 'countryDuplicates'
   | 'countryComplete'
   | 'duplicatesNone'
   | 'duplicatesCountryNone'
@@ -145,8 +146,9 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     stickerNotOwned: 'You do not have {label}.',
     stickerOwned: 'You have {label}. Quantity: {quantity}.',
     unknownCountry: 'I do not recognize {country}.',
-    countryHeader: '{countryCode} {countryName}',
-    countryProgress: 'You have {owned}/{total} ({percentage}).',
+    countryHeader: '{flag} {countryName} ({countryCode})',
+    countryProgress: '{owned}/{total} ({percentage})',
+    countryDuplicates: 'Duplicates: {duplicates}',
     ownedStickers: 'Stickers: {stickers}.',
     noCountryStickers: 'You do not have stickers from {countryCode}.',
     missingStickers: 'Missing ({count}): {stickers}.',
@@ -281,8 +283,9 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     stickerNotOwned: 'No tienes {label}.',
     stickerOwned: 'Sí tienes {label}. Cantidad: {quantity}.',
     unknownCountry: 'No reconozco {country}.',
-    countryHeader: '{countryCode} {countryName}',
-    countryProgress: 'Tienes {owned}/{total} ({percentage}).',
+    countryHeader: '{flag} {countryName} ({countryCode})',
+    countryProgress: '{owned}/{total} ({percentage})',
+    countryDuplicates: 'Repetidas: {duplicates}',
     ownedStickers: 'Estampas: {stickers}.',
     noCountryStickers: 'No tienes estampas de {countryCode}.',
     missingStickers: 'Faltantes ({count}): {stickers}.',
@@ -429,8 +432,9 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     stickerNotOwned: '你没有 {label}。',
     stickerOwned: '你有 {label}。数量：{quantity}。',
     unknownCountry: '我不认识 {country}。',
-    countryHeader: '{countryCode} {countryName}',
-    countryProgress: '你有 {owned}/{total}（{percentage}）。',
+    countryHeader: '{flag} {countryName}（{countryCode}）',
+    countryProgress: '{owned}/{total}（{percentage}）',
+    countryDuplicates: '重复：{duplicates}',
     ownedStickers: '贴纸：{stickers}。',
     noCountryStickers: '你没有 {countryCode} 的贴纸。',
     missingStickers: '缺少（{count}）：{stickers}。',

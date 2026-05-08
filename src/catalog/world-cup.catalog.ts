@@ -179,3 +179,17 @@ export const sortStickers = (stickers: StickerRef[]): StickerRef[] =>
 
 export const getCatalogTotal = (): number =>
   WORLD_CUP_CATALOG.reduce((total, country) => total + country.totalStickers, 0);
+
+const COUNTRY_FLAGS: Record<string, string> = {
+  ARG: '🇦🇷', AUS: '🇦🇺', BEL: '🇧🇪', BRA: '🇧🇷',
+  CAN: '🇨🇦', CMR: '🇨🇲', CRC: '🇨🇷', CRO: '🇭🇷',
+  DEN: '🇩🇰', ECU: '🇪🇨', ENG: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', ESP: '🇪🇸',
+  FRA: '🇫🇷', GER: '🇩🇪', GHA: '🇬🇭', IRN: '🇮🇷',
+  JPN: '🇯🇵', KOR: '🇰🇷', KSA: '🇸🇦', MAR: '🇲🇦',
+  MEX: '🇲🇽', NED: '🇳🇱', POL: '🇵🇱', POR: '🇵🇹',
+  QAT: '🇶🇦', SEN: '🇸🇳', SRB: '🇷🇸', SUI: '🇨🇭',
+  TUN: '🇹🇳', URU: '🇺🇾', USA: '🇺🇸', WAL: '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+};
+
+export const getCountryFlag = (countryCode: string): string =>
+  COUNTRY_FLAGS[countryCode.toUpperCase()] ?? '🌍';

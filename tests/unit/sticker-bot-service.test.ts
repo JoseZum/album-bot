@@ -233,8 +233,10 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
 
   const country = await service.handleMessage('arg', 'owner-a');
 
-  assert.match(country.reply, /^ARG Argentina\nYou have 2\/20 \(10%\)\.\nStickers: ARG 2, ARG 4\./);
-  assert.match(country.reply, /Missing \(18\): ARG 1, ARG 3, ARG 5/);
+  assert.match(country.reply, /^🇦🇷 Argentina \(ARG\)\n2\/20 \(10%\) · Duplicates: 1\n\n/);
+  assert.match(country.reply, / 2 ✅ ×2\n/);
+  assert.match(country.reply, / 4 ✅\n/);
+  assert.match(country.reply, / 1 ❌\n/);
 
   assert.equal((await service.handleMessage('duplicates', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
   assert.equal((await service.handleMessage('duplicates arg', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
