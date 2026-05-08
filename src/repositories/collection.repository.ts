@@ -836,6 +836,9 @@ export class CollectionRepository {
     }
 
     if (!this.isTradeOfferValid(data, offer)) {
+      this.markTradeOfferExpired(offer);
+      this.writeData(data);
+
       return { error: 'Trade expired.' };
     }
 
