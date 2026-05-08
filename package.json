@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
+    "db:migrate": "psql $DATABASE_URL -f db/01-schema.sql -f db/02-seed-album-data.sql -f db/03-trade-offers.sql",
     "test": "node --test --test-concurrency=1 --import tsx \"tests/**/*.test.ts\"",
     "test:unit": "node --test --test-concurrency=1 --import tsx \"tests/unit/**/*.test.ts\"",
     "test:integration": "node --test --test-concurrency=1 --import tsx \"tests/integration/**/*.test.ts\"",
