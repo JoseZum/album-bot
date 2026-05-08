@@ -89,6 +89,10 @@ test('parser handles trade wildcards and marketplace filters', () => {
   if (marketplaceMine.intent === 'marketplaceSearch') {
     assert.equal(marketplaceMine.search.mineOnly, true);
   }
+
+  const marketplaceBareSticker = parseStickerMessage('marketplace arg4');
+
+  assert.equal(marketplaceBareSticker.intent, 'unknown');
 });
 
 test('repository resolves wildcard pairs against current inventories', () => {
