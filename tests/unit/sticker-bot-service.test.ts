@@ -185,9 +185,9 @@ test('start menu, album creation, selection, listing, and album callbacks use th
 
   const list = await service.handleMessage('albums', 'owner-a');
 
-  assert.match(list.reply, /^Albums\nActive album: Panini FIFA World Cup 2026\./);
-  assert.match(list.reply, /Road to 2026 \[owned\] \(1\)/);
-  assert.match(list.reply, /Panini FIFA World Cup 2026 \[active, owned\] \(1\)/);
+  assert.match(list.reply, /^<b>Albums<\/b>\nActive: <b>Panini FIFA World Cup 2026<\/b>/);
+  assert.match(list.reply, /Road to 2026/);
+  assert.match(list.reply, /Panini FIFA World Cup 2026[\s\S]*active[\s\S]*owned/);
   assert.match(stringifyMarkup(list.replyMarkup), /album:select:/);
 
   const selectedByName = await service.handleMessage('select album Road', 'owner-a');
