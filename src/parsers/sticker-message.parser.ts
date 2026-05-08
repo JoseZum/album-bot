@@ -59,7 +59,7 @@ const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const stripNameFlag = (text: string): { text: string; showNames: boolean } => {
-  const nameFlagPattern = /(^|\s)(-name|-names|--name|--names|nombres?|names?)(?=\s|$)/gi;
+  const nameFlagPattern = /(^|\s)(-name|-names|--name|--names|names?)(?=\s|$)/gi;
   const showNames = nameFlagPattern.test(text);
 
   return {

@@ -433,6 +433,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       'delete album：删除当前相册。',
       'leave album：离开共享相册。',
       'share @username：请求与另一位 Telegram 用户共享当前相册。',
+      'compare @username: compare your active album with one of their albums.',
+      'compare arg @username: compare only one country.',
       'arg4、arg 4、ARG-4 或 argentina 4：查询贴纸。',
       'arg：显示国家进度。',
       'arg -name：显示目录中已有的名称。',
