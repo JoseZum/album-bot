@@ -301,6 +301,12 @@ ON CONFLICT (code) DO UPDATE SET
   is_default = EXCLUDED.is_default,
   sort_order = EXCLUDED.sort_order;
 
+DROP VIEW IF EXISTS v_duplicate_stickers;
+DROP VIEW IF EXISTS v_missing_stickers;
+DROP VIEW IF EXISTS v_collection_progress;
+DROP VIEW IF EXISTS v_user_albums;
+DROP VIEW IF EXISTS v_album_catalog_summary;
+
 CREATE OR REPLACE VIEW v_album_catalog_summary AS
 SELECT
   albums.slug AS album_slug,
