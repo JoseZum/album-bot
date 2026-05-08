@@ -1,9 +1,9 @@
 import { Router } from 'express';
 
-import healthRoutes from './health.routes';
+import albumsRoutes from './albums.routes';
 
 const router = Router();
 
-router.use('/health', healthRoutes);
+router.use('/albums', albumsRoutes);
 
 export default router;
