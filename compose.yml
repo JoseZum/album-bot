@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: album-bot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: album_bot
+      POSTGRES_USER: album_bot
+      POSTGRES_PASSWORD: album_bot_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - album-bot-postgres-data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U album_bot -d album_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  album-bot-postgres-data:
