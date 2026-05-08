@@ -84,6 +84,18 @@ type TranslationKey =
   | 'shareAcceptedNotify'
   | 'shareDeclined'
   | 'shareDeclinedNotify'
+  | 'compareUnknownUser'
+  | 'compareSelf'
+  | 'compareNoTargetAlbums'
+  | 'compareChooseAlbum'
+  | 'compareAlbumNotFound'
+  | 'compareTitle'
+  | 'compareCountryScope'
+  | 'compareAllCountriesScope'
+  | 'compareNoMatches'
+  | 'compareTheyCanGive'
+  | 'compareYouCanGive'
+  | 'compareNone'
   | 'help';
 
 const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
@@ -169,6 +181,18 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     shareAcceptedNotify: '{responderName} accepted sharing the album with you.',
     shareDeclined: 'No. Request declined.',
     shareDeclinedNotify: '{responderName} declined sharing the album.',
+    compareUnknownUser: 'I do not know @{username}. That person must open the bot and send /start first.',
+    compareSelf: 'Choose another user to compare albums.',
+    compareNoTargetAlbums: '{username} has no albums yet.',
+    compareChooseAlbum: 'Choose which album from {username} to compare.',
+    compareAlbumNotFound: 'I could not find that album.',
+    compareTitle: 'Compare {yourAlbum} with {otherAlbum} from {username}.',
+    compareCountryScope: 'Country: {countryCode}.',
+    compareAllCountriesScope: 'Country: all.',
+    compareNoMatches: 'No duplicate-for-missing matches found.',
+    compareTheyCanGive: '{username} can give you: {stickers}.',
+    compareYouCanGive: 'You can give {username}: {stickers}.',
+    compareNone: 'none',
     help: [
       'Available commands:',
       'start: open the album menu.',
@@ -179,6 +203,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       'delete album: delete the active album.',
       'leave album: leave a shared album.',
       'share @username: request sharing the active album with another Telegram user.',
+      'compare @username: compare your active album with one of their albums.',
+      'compare arg @username: compare only one country.',
       'arg4, arg 4, ARG-4, or argentina 4: check a sticker.',
       'arg: show country progress.',
       'arg -name: show names when available.',
@@ -270,6 +296,18 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     shareAcceptedNotify: '{responderName} aceptó compartir el álbum contigo.',
     shareDeclined: 'No. Solicitud rechazada.',
     shareDeclinedNotify: '{responderName} rechazó compartir el álbum.',
+    compareUnknownUser: 'No conozco a @{username}. Esa persona debe abrir el bot y mandar /start primero.',
+    compareSelf: 'Elige otro usuario para comparar albumes.',
+    compareNoTargetAlbums: '{username} no tiene albumes todavia.',
+    compareChooseAlbum: 'Elige cual album de {username} quieres comparar.',
+    compareAlbumNotFound: 'No encontre ese album.',
+    compareTitle: 'Comparando {yourAlbum} con {otherAlbum} de {username}.',
+    compareCountryScope: 'Pais: {countryCode}.',
+    compareAllCountriesScope: 'Pais: todos.',
+    compareNoMatches: 'No encontre cruces de duplicadas contra faltantes.',
+    compareTheyCanGive: '{username} te puede dar: {stickers}.',
+    compareYouCanGive: 'Tu le puedes dar a {username}: {stickers}.',
+    compareNone: 'ninguna',
     help: [
       'Comandos disponibles:',
       'start: abre el menú de álbumes.',
@@ -280,6 +318,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       'delete album: elimina el álbum activo.',
       'leave album: sal de un álbum compartido.',
       'share @usuario: solicita compartir el álbum activo con otro usuario de Telegram.',
+      'compare @username: compara tu album activo con uno de sus albumes.',
+      'compare arg @username: compara solo un pais.',
       'arg4, arg 4, ARG-4 o argentina 4: consulta una estampa.',
       'arg: muestra progreso del país.',
       'arg -name: muestra nombres cuando existan en el catálogo.',
@@ -290,6 +330,18 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     ].join('\n'),
   },
   zh: {
+    compareUnknownUser: 'I do not know @{username}. That person must open the bot and send /start first.',
+    compareSelf: 'Choose another user to compare albums.',
+    compareNoTargetAlbums: '{username} has no albums yet.',
+    compareChooseAlbum: 'Choose which album from {username} to compare.',
+    compareAlbumNotFound: 'I could not find that album.',
+    compareTitle: 'Compare {yourAlbum} with {otherAlbum} from {username}.',
+    compareCountryScope: 'Country: {countryCode}.',
+    compareAllCountriesScope: 'Country: all.',
+    compareNoMatches: 'No duplicate-for-missing matches found.',
+    compareTheyCanGive: '{username} can give you: {stickers}.',
+    compareYouCanGive: 'You can give {username}: {stickers}.',
+    compareNone: 'none',
     chooseLanguage: '请选择语言。',
     languageSaved: '语言已设置为中文。',
     buttonYes: '是',

@@ -57,6 +57,11 @@ export type CollectionSummary = {
   isShared: boolean;
 };
 
+export type CollectionSnapshot = {
+  album: CollectionSummary;
+  stickerQuantities: Record<string, number>;
+};
+
 type StoredCollection = {
   albumSlug: string;
   name: string;
@@ -227,6 +232,27 @@ export class CollectionRepository {
     }
 
     return this.toCollectionSummary(data, collectionId, collection, normalizedOwnerId, collectionId);
+  }
+
+  getAlbumSnapshot(ownerId: string, collectionId: string): CollectionSnapshot | null {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collection = data.collections[collectionId];
+
+    if (!collection || collection.deletedAt || !collection.members.includes(normalizedOwnerId)) {
+      return null;
+    }
+
+    return {
+      album: this.toCollectionSummary(
+        data,
+        collectionId,
+        collection,
+        normalizedOwnerId,
+        data.ownerCollections[normalizedOwnerId],
+      ),
+      stickerQuantities: { ...collection.stickers },
+    };
   }
 
   createAlbum(ownerId: string, albumSlug: string, name?: string): CollectionSummary | null {

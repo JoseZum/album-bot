@@ -24,6 +24,7 @@ import {
 import { parseStickerMessage, type ParsedBotMessage } from '../parsers/sticker-message.parser';
 import {
   collectionRepository,
+  type CollectionSummary,
   type CollectionRepository,
   type StickerHistoryAction,
   type StickerHistoryEntry,
@@ -55,6 +56,11 @@ type CountryStats = {
   owned: StickerRef[];
   missing: StickerRef[];
   percentage: string;
+};
+
+type TradeCandidate = {
+  sticker: StickerRef;
+  extraCount: number;
 };
 
 export class StickerBotService {
@@ -107,7 +113,9 @@ export class StickerBotService {
 
     const result = parsed.intent === 'share'
       ? this.shareAlbum(ownerId, parsed.targetUsername, language)
-      : { reply: this.buildReply(parsed, ownerId, language) };
+      : parsed.intent === 'compare'
+        ? this.compareUser(ownerId, parsed.targetUsername, parsed.countryCode, parsed.showNames, language)
+        : { reply: this.buildReply(parsed, ownerId, language) };
 
     return {
       parsed,
@@ -161,6 +169,22 @@ export class StickerBotService {
       return {
         reply: t(language, 'albumSelected', { albumName: album.name }),
       };
+    }
+
+    const compareMatch = /^compare:([a-z0-9_]{5,32}):(\d+):([A-Z]{3}|all):([01])$/.exec(callbackData);
+
+    if (compareMatch) {
+      const [, targetUsername, albumIndex, countryCode, showNames] = compareMatch;
+      const language = this.getLanguage(ownerId) ?? 'en';
+
+      return this.compareSelectedAlbum(
+        ownerId,
+        targetUsername,
+        Number(albumIndex),
+        countryCode === 'all' ? undefined : countryCode,
+        showNames === '1',
+        language,
+      );
     }
 
     return this.handleShareResponse(callbackData, ownerId);
@@ -237,6 +261,14 @@ export class StickerBotService {
         return this.showProgress(ownerId, language);
       case 'share':
         return this.shareAlbum(ownerId, parsed.targetUsername, language).reply;
+      case 'compare':
+        return this.compareUser(
+          ownerId,
+          parsed.targetUsername,
+          parsed.countryCode,
+          parsed.showNames,
+          language,
+        ).reply;
       case 'albumList':
         return this.albumListReply(ownerId, language).reply;
       case 'albumCreate':
@@ -525,6 +557,195 @@ export class StickerBotService {
         },
       ],
     };
+  }
+
+  private compareUser(
+    ownerId: string,
+    targetUsername: string,
+    countryCode: string | undefined,
+    showNames: boolean,
+    language: BotLanguage,
+  ): BotActionResult {
+    const targetProfile = this.repository.findProfileByUsername(targetUsername);
+
+    if (!targetProfile) {
+      return {
+        reply: t(language, 'compareUnknownUser', { username: targetUsername }),
+      };
+    }
+
+    if (targetProfile.ownerId === ownerId) {
+      return { reply: t(language, 'compareSelf') };
+    }
+
+    const targetAlbums = this.repository.listAlbums(targetProfile.ownerId);
+    const targetDisplayName = targetProfile.displayName ?? `@${targetUsername}`;
+
+    if (targetAlbums.length === 0) {
+      return {
+        reply: t(language, 'compareNoTargetAlbums', { username: targetDisplayName }),
+      };
+    }
+
+    return {
+      reply: t(language, 'compareChooseAlbum', { username: targetDisplayName }),
+      replyMarkup: {
+        inline_keyboard: targetAlbums.map((album, index) => [
+          {
+            text: `${index + 1}. ${album.name}`,
+            callback_data: [
+              'compare',
+              targetUsername,
+              String(index + 1),
+              countryCode ?? 'all',
+              showNames ? '1' : '0',
+            ].join(':'),
+          },
+        ]),
+      },
+    };
+  }
+
+  private compareSelectedAlbum(
+    ownerId: string,
+    targetUsername: string,
+    albumIndex: number,
+    countryCode: string | undefined,
+    showNames: boolean,
+    language: BotLanguage,
+  ): BotActionResult {
+    const targetProfile = this.repository.findProfileByUsername(targetUsername);
+
+    if (!targetProfile) {
+      return {
+        reply: t(language, 'compareUnknownUser', { username: targetUsername }),
+      };
+    }
+
+    const targetAlbum = this.repository.listAlbums(targetProfile.ownerId)[albumIndex - 1];
+
+    if (!targetAlbum) {
+      return { reply: t(language, 'compareAlbumNotFound') };
+    }
+
+    const targetSnapshot = this.repository.getAlbumSnapshot(targetProfile.ownerId, targetAlbum.id);
+    const activeAlbum = this.repository.getActiveAlbum(ownerId);
+
+    if (!activeAlbum) {
+      return { reply: t(language, 'commandRequiresActiveAlbum') };
+    }
+
+    if (!targetSnapshot) {
+      return { reply: t(language, 'compareAlbumNotFound') };
+    }
+
+    return {
+      reply: this.buildCompareReply({
+        activeAlbum,
+        activeQuantities: this.repository.getStickerQuantities(ownerId),
+        targetAlbum: targetSnapshot.album,
+        targetDisplayName: targetProfile.displayName ?? `@${targetUsername}`,
+        targetQuantities: targetSnapshot.stickerQuantities,
+        countryCode,
+        showNames,
+        language,
+      }),
+    };
+  }
+
+  private buildCompareReply(options: {
+    activeAlbum: CollectionSummary;
+    activeQuantities: Record<string, number>;
+    targetAlbum: CollectionSummary;
+    targetDisplayName: string;
+    targetQuantities: Record<string, number>;
+    countryCode?: string;
+    showNames: boolean;
+    language: BotLanguage;
+  }): string {
+    const targetCanGive = this.findDuplicateMissingMatches(
+      options.targetQuantities,
+      options.activeQuantities,
+      options.countryCode,
+    );
+    const activeCanGive = this.findDuplicateMissingMatches(
+      options.activeQuantities,
+      options.targetQuantities,
+      options.countryCode,
+    );
+    const lines = [
+      t(options.language, 'compareTitle', {
+        yourAlbum: options.activeAlbum.name,
+        otherAlbum: options.targetAlbum.name,
+        username: options.targetDisplayName,
+      }),
+      options.countryCode
+        ? t(options.language, 'compareCountryScope', { countryCode: options.countryCode })
+        : t(options.language, 'compareAllCountriesScope'),
+    ];
+
+    if (targetCanGive.length === 0 && activeCanGive.length === 0) {
+      lines.push(t(options.language, 'compareNoMatches'));
+
+      return lines.join('\n');
+    }
+
+    lines.push(t(options.language, 'compareTheyCanGive', {
+      username: options.targetDisplayName,
+      stickers: this.formatTradeCandidateList(targetCanGive, options.showNames, options.language),
+    }));
+    lines.push(t(options.language, 'compareYouCanGive', {
+      username: options.targetDisplayName,
+      stickers: this.formatTradeCandidateList(activeCanGive, options.showNames, options.language),
+    }));
+
+    return lines.join('\n');
+  }
+
+  private findDuplicateMissingMatches(
+    sourceQuantities: Record<string, number>,
+    targetQuantities: Record<string, number>,
+    countryCode: string | undefined,
+  ): TradeCandidate[] {
+    return Object.entries(sourceQuantities)
+      .map(([key, quantity]) => ({
+        sticker: stickerFromKey(key),
+        quantity,
+        key,
+      }))
+      .filter((entry): entry is { sticker: StickerRef; quantity: number; key: string } =>
+        Boolean(entry.sticker && isKnownSticker(entry.sticker)),
+      )
+      .filter((entry) =>
+        entry.quantity > 1
+        && (targetQuantities[entry.key] ?? 0) <= 0
+        && (!countryCode || entry.sticker.countryCode === countryCode),
+      )
+      .map((entry) => ({
+        sticker: entry.sticker,
+        extraCount: entry.quantity - 1,
+      }))
+      .sort((left, right) => {
+        const countryComparison = left.sticker.countryCode.localeCompare(right.sticker.countryCode);
+
+        return countryComparison || left.sticker.number - right.sticker.number;
+      });
+  }
+
+  private formatTradeCandidateList(
+    candidates: TradeCandidate[],
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
+    if (candidates.length === 0) {
+      return t(language, 'compareNone');
+    }
+
+    return candidates
+      .map((candidate) =>
+        `${formatSticker(candidate.sticker, { includeName: showNames })} x${candidate.extraCount}`,
+      )
+      .join(', ');
   }
 
   private getCountryStats(ownerId: string, countryCode: string): CountryStats | null {
@@ -897,6 +1118,7 @@ export class StickerBotService {
       'duplicates',
       'progress',
       'share',
+      'compare',
       'undo',
     ].includes(parsed.intent);
   }

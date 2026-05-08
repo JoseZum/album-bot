@@ -15,6 +15,7 @@ export type ParsedBotMessage =
   | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
   | { intent: 'share'; targetUsername: string; showNames: boolean }
+  | { intent: 'compare'; targetUsername: string; countryCode?: string; showNames: boolean }
   | { intent: 'albumList'; showNames: boolean }
   | { intent: 'albumCreate'; albumName: string; showNames: boolean }
   | { intent: 'albumSelect'; selector: string; showNames: boolean }
@@ -38,21 +39,21 @@ type LeadingIntent =
   | 'undo'
   | 'help';
 
-const ADD_ALIASES = new Set(['add', 'agregar', 'agrega', 'anadir', 'sumar', 'suma', 'tengo']);
-const REMOVE_ALIASES = new Set(['remove', 'rm', 'remover', 'eliminar', 'elimina', 'quitar', 'quita', 'borrar']);
-const MISSING_ALIASES = new Set(['missing', 'faltantes', 'faltante', 'falta']);
-const DUPLICATES_ALIASES = new Set(['duplicates', 'duplicadas', 'duplicados', 'dups', 'repetidas', 'repetidos']);
-const PROGRESS_ALIASES = new Set(['progress', 'progreso', 'avance', 'stats', 'estadisticas']);
-const START_ALIASES = new Set(['start', 'menu', 'album', 'albums', 'albumes']);
-const LANGUAGE_ALIASES = new Set(['language', 'lang', 'idioma']);
-const UNDO_ALIASES = new Set(['undo', 'deshacer']);
-const HELP_ALIASES = new Set(['help', 'ayuda']);
+const ADD_ALIASES = new Set(['add']);
+const REMOVE_ALIASES = new Set(['remove', 'rm']);
+const MISSING_ALIASES = new Set(['missing']);
+const DUPLICATES_ALIASES = new Set(['duplicates', 'dups']);
+const PROGRESS_ALIASES = new Set(['progress', 'stats']);
+const START_ALIASES = new Set(['start', 'menu', 'album', 'albums']);
+const LANGUAGE_ALIASES = new Set(['language', 'lang']);
+const UNDO_ALIASES = new Set(['undo']);
+const HELP_ALIASES = new Set(['help']);
 
-const ALBUM_CREATE_ALIASES = new Set(['new', 'create', 'nuevo', 'nueva', 'crear', 'crea']);
-const ALBUM_SELECT_ALIASES = new Set(['use', 'select', 'switch', 'usar', 'usa', 'seleccionar', 'selecciona', 'cambiar']);
-const ALBUM_RENAME_ALIASES = new Set(['rename', 'renombrar', 'renombra']);
-const ALBUM_DELETE_ALIASES = new Set(['delete', 'remove', 'rm', 'eliminar', 'elimina', 'borrar', 'borra']);
-const ALBUM_LEAVE_ALIASES = new Set(['leave', 'salir', 'sal']);
+const ALBUM_CREATE_ALIASES = new Set(['new', 'create']);
+const ALBUM_SELECT_ALIASES = new Set(['use', 'select', 'switch']);
+const ALBUM_RENAME_ALIASES = new Set(['rename']);
+const ALBUM_DELETE_ALIASES = new Set(['delete', 'remove', 'rm']);
+const ALBUM_LEAVE_ALIASES = new Set(['leave']);
 
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -198,11 +199,11 @@ const parseAlbumCommand = (
     return null;
   }
 
-  if (firstToken === 'albums' || firstToken === 'albumes') {
+  if (firstToken === 'albums') {
     return { intent: 'albumList', showNames };
   }
 
-  if (firstToken === 'album' || firstToken === 'albumes') {
+  if (firstToken === 'album') {
     if (!secondToken) {
       return { intent: 'start', showNames };
     }
@@ -242,7 +243,7 @@ const parseAlbumCommand = (
     return null;
   }
 
-  const secondIsAlbum = secondToken === 'album' || secondToken === 'albumes';
+  const secondIsAlbum = secondToken === 'album';
 
   if (secondIsAlbum && ALBUM_CREATE_ALIASES.has(firstToken)) {
     const albumName = stripLeadingWords(text, 2);
@@ -292,6 +293,28 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
     return {
       intent: 'share',
       targetUsername: shareMatch[1].toLowerCase(),
+      showNames,
+    };
+  }
+
+  const compareMatch = /^\/?compare(?:\s+(.+?))?\s+@([a-z0-9_]{5,32})$/i.exec(text);
+
+  if (compareMatch) {
+    const countryInput = compareMatch[1]?.trim();
+    const country = countryInput ? parseCountry(countryInput) : null;
+
+    if (countryInput && !country) {
+      return {
+        intent: 'unknown',
+        reason: 'Unknown compare country.',
+        showNames,
+      };
+    }
+
+    return {
+      intent: 'compare',
+      targetUsername: compareMatch[2].toLowerCase(),
+      countryCode: country?.code,
       showNames,
     };
   }
