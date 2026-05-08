@@ -65,19 +65,25 @@ test('parser handles trade wildcards and marketplace filters', () => {
   assert.equal(tradeParsedSimple.intent, 'tradeCreate');
 
   const marketplaceUser = parseStickerMessage('marketplace @tester_a');
-  const marketplaceSticker = parseStickerMessage('marketplace arg4');
+  const marketplaceGiveSticker = parseStickerMessage('marketplace -give arg4');
+  const marketplaceNeedSticker = parseStickerMessage('marketplace -need arg4');
   const marketplaceMine = parseStickerMessage('marketplace -mine');
 
   assert.equal(marketplaceUser.intent, 'marketplaceSearch');
-  assert.equal(marketplaceSticker.intent, 'marketplaceSearch');
+  assert.equal(marketplaceGiveSticker.intent, 'marketplaceSearch');
+  assert.equal(marketplaceNeedSticker.intent, 'marketplaceSearch');
   assert.equal(marketplaceMine.intent, 'marketplaceSearch');
 
   if (marketplaceUser.intent === 'marketplaceSearch') {
     assert.equal(marketplaceUser.search.ownerUsername, 'tester_a');
   }
 
-  if (marketplaceSticker.intent === 'marketplaceSearch') {
-    assert.deepEqual(marketplaceSticker.search.sticker, ARG4);
+  if (marketplaceGiveSticker.intent === 'marketplaceSearch') {
+    assert.deepEqual(marketplaceGiveSticker.search.giveSticker, ARG4);
+  }
+
+  if (marketplaceNeedSticker.intent === 'marketplaceSearch') {
+    assert.deepEqual(marketplaceNeedSticker.search.needSticker, ARG4);
   }
 
   if (marketplaceMine.intent === 'marketplaceSearch') {
@@ -117,6 +123,30 @@ test('repository resolves wildcard pairs against current inventories', () => {
   }
 });
 
+test('marketplace direction filters give and need sides separately', () => {
+  const { repository, service, cleanup } = createHarness();
+
+  try {
+    registerUser(repository, 'owner-a', 'tester_a');
+    registerUser(repository, 'owner-b', 'tester_b');
+
+    repository.adjustQuantity('owner-a', ARG2, 2);
+    repository.adjustQuantity('owner-b', ARG4, 1);
+
+    service.handleMessage('trade -duplicate arg4', 'owner-a');
+
+    const givesArg2 = service.handleMessage('marketplace -give arg2', 'owner-b');
+    const givesArg4 = service.handleMessage('marketplace -give arg4', 'owner-b');
+    const needsArg4 = service.handleMessage('marketplace -need arg4', 'owner-b');
+
+    assert.match(givesArg2.reply, /#T1/);
+    assert.doesNotMatch(givesArg4.reply, /#T1/);
+    assert.match(needsArg4.reply, /#T1/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('trade inventory only changes after both people confirm completion', () => {
   const { repository, service, cleanup } = createHarness();
 
@@ -130,7 +160,7 @@ test('trade inventory only changes after both people confirm completion', () => 
     const created = service.handleMessage('trade arg2 arg4', 'owner-a');
     assert.match(created.reply, /Trade posted/);
 
-    const marketplace = service.handleMessage('marketplace arg4', 'owner-b');
+    const marketplace = service.handleMessage('marketplace -need arg4', 'owner-b');
     assert.match(marketplace.reply, /#T1/);
 
     const proposed = service.handleCallbackData('trade:propose:T1', 'owner-b');
