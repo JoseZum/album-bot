@@ -121,6 +121,16 @@ export class StickerBotService {
     }
 
     if (this.requiresActiveAlbum(parsed) && !await this.repository.hasActiveAlbum(ownerId)) {
+      const userAlbums = await this.repository.listAlbums(ownerId);
+
+      if (userAlbums.length === 0) {
+        return {
+          parsed,
+          reply: t(language, 'onboardingWelcome'),
+          parseMode: 'HTML',
+        };
+      }
+
       const menu = await this.startMenuReply(ownerId, language);
 
       return {
@@ -129,6 +139,27 @@ export class StickerBotService {
         replyMarkup: menu.replyMarkup,
       };
     }
+
+    if (parsed.intent === 'unknown' && text.trim().length >= 2) {
+      const userAlbums = await this.repository.listAlbums(ownerId);
+
+      if (userAlbums.length === 0) {
+        const album = await this.repository.createAlbum(
+          ownerId,
+          AVAILABLE_ALBUM_TEMPLATES[0].slug,
+          text.trim(),
+        );
+
+        if (album) {
+          return {
+            parsed,
+            reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
+            parseMode: 'HTML',
+          };
+        }
+      }
+    }
+
     const result = await this.buildReply(parsed, ownerId, language);
 
     return {
@@ -148,6 +179,15 @@ export class StickerBotService {
       }
 
       await this.repository.setLanguage(ownerId, language);
+      const userAlbums = await this.repository.listAlbums(ownerId);
+
+      if (userAlbums.length === 0) {
+        return {
+          reply: t(language, 'onboardingWelcome'),
+          parseMode: 'HTML',
+        };
+      }
+
       const menu = await this.startMenuReply(ownerId, language);
 
       return {
@@ -170,7 +210,8 @@ export class StickerBotService {
         }
 
         return {
-          reply: t(language, 'albumCreated', { albumName: album.name }),
+          reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
+          parseMode: 'HTML',
         };
       }
 
@@ -390,9 +431,7 @@ export class StickerBotService {
         const parseError = escapeTelegramHtml(this.translateParseError(parsed.reason, language));
 
         return {
-          reply: parsed.reason === 'Indica una estampa, por ejemplo: add arg4.'
-            ? parseError
-            : `${parseError}\n\n${t(language, 'help')}`,
+          reply: `${parseError}\n\n${t(language, 'unknownCommandHint')}`,
           parseMode: 'HTML',
         };
       }
@@ -1589,7 +1628,8 @@ export class StickerBotService {
     }
 
     return {
-      reply: t(language, 'albumCreated', { albumName: album.name }),
+      reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
+      parseMode: 'HTML',
     };
   }
 
