@@ -669,6 +669,10 @@ export class CollectionRepository {
     give: TradeSelector,
     want: TradeSelector,
   ): { offer?: TradeOffer; error?: string } {
+    if (give.kind === 'missing' || want.kind === 'duplicate') {
+      return { error: 'Trade format: use a sticker or -duplicate to give, and a sticker or -missing to want.' };
+    }
+
     const data = this.readData();
     const activeCollection = this.getActiveCollection(data, ownerId);
 
@@ -720,7 +724,11 @@ export class CollectionRepository {
 
     return Object.values(data.tradeOffers)
       .filter((offer) => offer.ownerId === normalizedOwnerId)
-      .filter((offer) => offer.status !== 'completed' && offer.status !== 'cancelled')
+      .filter((offer) =>
+        offer.status !== 'completed'
+        && offer.status !== 'cancelled'
+        && offer.status !== 'expired',
+      )
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map((offer) => this.cloneTradeOffer(offer));
   }
@@ -1201,6 +1209,21 @@ export class CollectionRepository {
       offer.collectionId ??= normalizedData.ownerCollections[offer.ownerId];
 
       if (
+        !offer.give
+        || !offer.want
+      ) {
+        offer.status = 'expired';
+        continue;
+      }
+
+      if (
+        offer.give.kind === 'missing'
+        || offer.want.kind === 'duplicate'
+      ) {
+        offer.status = 'expired';
+      }
+
+      if (
         (offer.status === 'pending_confirmation' || offer.status === 'accepted_pending_completion')
         && (!offer.resolvedGive || !offer.resolvedWant || !offer.reservedByOwnerId)
       ) {
@@ -1239,6 +1262,280 @@ export class CollectionRepository {
     return normalizedData;
   }
 
+  private cloneTradeOffer(offer: TradeOffer): TradeOffer {
+    return {
+      ...offer,
+      give: this.cloneTradeSelector(offer.give),
+      want: this.cloneTradeSelector(offer.want),
+      resolvedGive: offer.resolvedGive ? { ...offer.resolvedGive } : undefined,
+      resolvedWant: offer.resolvedWant ? { ...offer.resolvedWant } : undefined,
+    };
+  }
+
+  private cloneTradeSelector(selector: TradeSelector): TradeSelector {
+    return selector.kind === 'sticker'
+      ? {
+        kind: 'sticker',
+        sticker: { ...selector.sticker },
+      }
+      : {
+        kind: selector.kind,
+        countryCode: selector.countryCode,
+      };
+  }
+
+  private validateTradeGiveSelector(
+    stickers: Record<string, number>,
+    selector: TradeSelector,
+  ): string | undefined {
+    if (selector.kind === 'sticker') {
+      if (!isKnownSticker(selector.sticker)) {
+        return 'Unknown trade sticker.';
+      }
+
+      return (stickers[stickerKey(selector.sticker)] ?? 0) >= 1
+        ? undefined
+        : `You cannot offer ${formatSticker(selector.sticker)} right now.`;
+    }
+
+    const hasDuplicate = this.getScopedStickerRefs(selector.countryCode)
+      .some((sticker) => (stickers[stickerKey(sticker)] ?? 0) > 1);
+
+    if (hasDuplicate) {
+      return undefined;
+    }
+
+    return selector.countryCode
+      ? `You do not have a duplicate from ${selector.countryCode} to offer.`
+      : 'You do not have any duplicate to offer.';
+  }
+
+  private validateTradeWantSelector(
+    stickers: Record<string, number>,
+    selector: TradeSelector,
+  ): string | undefined {
+    if (selector.kind === 'sticker') {
+      if (!isKnownSticker(selector.sticker)) {
+        return 'Unknown trade sticker.';
+      }
+
+      return (stickers[stickerKey(selector.sticker)] ?? 0) <= 0
+        ? undefined
+        : `You already have ${formatSticker(selector.sticker)} in this album.`;
+    }
+
+    const hasMissing = this.getScopedStickerRefs(selector.countryCode)
+      .some((sticker) => (stickers[stickerKey(sticker)] ?? 0) <= 0);
+
+    if (hasMissing) {
+      return undefined;
+    }
+
+    return selector.countryCode
+      ? `You are not missing any sticker from ${selector.countryCode}.`
+      : 'You are not missing any sticker right now.';
+  }
+
+  private isTradeOfferValid(data: StoredData, offer: TradeOffer): boolean {
+    if (offer.status === 'active') {
+      return this.isTradeOfferActive(data, offer);
+    }
+
+    if (
+      offer.status === 'pending_confirmation'
+      || offer.status === 'accepted_pending_completion'
+    ) {
+      return this.isTradeOfferResolved(data, offer);
+    }
+
+    return false;
+  }
+
+  private isTradeOfferActive(data: StoredData, offer: TradeOffer): boolean {
+    const ownerCollection = data.collections[offer.collectionId];
+
+    if (
+      !ownerCollection
+      || ownerCollection.deletedAt
+      || !ownerCollection.members.includes(offer.ownerId)
+    ) {
+      return false;
+    }
+
+    return !this.validateTradeGiveSelector(ownerCollection.stickers, offer.give)
+      && !this.validateTradeWantSelector(ownerCollection.stickers, offer.want);
+  }
+
+  private isTradeOfferResolved(data: StoredData, offer: TradeOffer): boolean {
+    if (
+      !offer.resolvedGive
+      || !offer.resolvedWant
+      || !offer.reservedByOwnerId
+      || !offer.reservedCollectionId
+    ) {
+      return false;
+    }
+
+    const ownerCollection = data.collections[offer.collectionId];
+    const takerCollection = data.collections[offer.reservedCollectionId];
+
+    if (
+      !ownerCollection
+      || ownerCollection.deletedAt
+      || !ownerCollection.members.includes(offer.ownerId)
+      || !takerCollection
+      || takerCollection.deletedAt
+      || !takerCollection.members.includes(offer.reservedByOwnerId)
+      || offer.collectionId === offer.reservedCollectionId
+    ) {
+      return false;
+    }
+
+    return this.isResolvedGiveStillValid(
+      offer.give,
+      offer.resolvedGive,
+      ownerCollection.stickers,
+    ) && this.isResolvedWantStillValid(
+      offer.want,
+      offer.resolvedWant,
+      ownerCollection.stickers,
+      takerCollection.stickers,
+    );
+  }
+
+  private isResolvedGiveStillValid(
+    selector: TradeSelector,
+    resolvedSticker: StickerRef,
+    ownerStickers: Record<string, number>,
+  ): boolean {
+    const quantity = ownerStickers[stickerKey(resolvedSticker)] ?? 0;
+
+    if (selector.kind === 'sticker') {
+      return stickerKey(selector.sticker) === stickerKey(resolvedSticker) && quantity >= 1;
+    }
+
+    return this.matchesTradeSelectorScope(selector, resolvedSticker) && quantity > 1;
+  }
+
+  private isResolvedWantStillValid(
+    selector: TradeSelector,
+    resolvedSticker: StickerRef,
+    ownerStickers: Record<string, number>,
+    takerStickers: Record<string, number>,
+  ): boolean {
+    const ownerQuantity = ownerStickers[stickerKey(resolvedSticker)] ?? 0;
+    const takerQuantity = takerStickers[stickerKey(resolvedSticker)] ?? 0;
+
+    if (selector.kind === 'sticker') {
+      return (
+        stickerKey(selector.sticker) === stickerKey(resolvedSticker)
+        && ownerQuantity <= 0
+        && takerQuantity >= 1
+      );
+    }
+
+    return (
+      this.matchesTradeSelectorScope(selector, resolvedSticker)
+      && ownerQuantity <= 0
+      && takerQuantity >= 1
+    );
+  }
+
+  private getCompatiblePairs(
+    data: StoredData,
+    offer: TradeOffer,
+    takerCollectionId: string,
+  ): TradePair[] {
+    const ownerCollection = data.collections[offer.collectionId];
+    const takerCollection = data.collections[takerCollectionId];
+
+    if (
+      !ownerCollection
+      || ownerCollection.deletedAt
+      || !ownerCollection.members.includes(offer.ownerId)
+      || !takerCollection
+      || takerCollection.deletedAt
+      || offer.collectionId === takerCollectionId
+    ) {
+      return [];
+    }
+
+    const giveCandidates = offer.give.kind === 'sticker'
+      ? (ownerCollection.stickers[stickerKey(offer.give.sticker)] ?? 0) >= 1
+        ? [offer.give.sticker]
+        : []
+      : this.getScopedStickerRefs(offer.give.countryCode)
+        .filter((sticker) => (ownerCollection.stickers[stickerKey(sticker)] ?? 0) > 1);
+    const wantCandidates = offer.want.kind === 'sticker'
+      ? (
+        (ownerCollection.stickers[stickerKey(offer.want.sticker)] ?? 0) <= 0
+        && (takerCollection.stickers[stickerKey(offer.want.sticker)] ?? 0) >= 1
+      )
+        ? [offer.want.sticker]
+        : []
+      : this.getScopedStickerRefs(offer.want.countryCode).filter((sticker) =>
+        (ownerCollection.stickers[stickerKey(sticker)] ?? 0) <= 0
+        && (takerCollection.stickers[stickerKey(sticker)] ?? 0) >= 1,
+      );
+
+    return giveCandidates.flatMap((giveSticker) =>
+      wantCandidates.map((wantSticker) => ({
+        give: giveSticker,
+        want: wantSticker,
+      })),
+    );
+  }
+
+  private getScopedStickerRefs(countryCode?: string): StickerRef[] {
+    if (countryCode) {
+      return getAllStickerRefs(countryCode);
+    }
+
+    return WORLD_CUP_CATALOG.flatMap((country) => getAllStickerRefs(country.code));
+  }
+
+  private matchesTradeSelectorScope(
+    selector: Exclude<TradeSelector, { kind: 'sticker' }>,
+    sticker: StickerRef,
+  ): boolean {
+    return !selector.countryCode || selector.countryCode === sticker.countryCode;
+  }
+
+  private tradePairsEqual(left: TradePair, right: TradePair): boolean {
+    return (
+      stickerKey(left.give) === stickerKey(right.give)
+      && stickerKey(left.want) === stickerKey(right.want)
+    );
+  }
+
+  private clearTradeReservation(offer: TradeOffer): void {
+    offer.status = 'active';
+    offer.reservedByOwnerId = undefined;
+    offer.reservedCollectionId = undefined;
+    offer.resolvedGive = undefined;
+    offer.resolvedWant = undefined;
+    offer.ownerConfirmedAt = undefined;
+    offer.takerConfirmedAt = undefined;
+  }
+
+  private markTradeOfferExpired(offer: TradeOffer): void {
+    offer.status = 'expired';
+    offer.ownerConfirmedAt = undefined;
+    offer.takerConfirmedAt = undefined;
+  }
+
+  private changeCollectionStickerQuantity(
+    collection: StoredCollection,
+    sticker: StickerRef,
+    delta: number,
+  ): void {
+    const key = stickerKey(sticker);
+    const currentQuantity = collection.stickers[key] ?? 0;
+    const nextQuantity = Math.max(currentQuantity + delta, 0);
+
+    this.setStoredQuantity(collection, key, nextQuantity);
+  }
+
   private toCollectionSummary(
     data: StoredData,
     id: string,
@@ -1273,6 +1570,35 @@ export class CollectionRepository {
       if (request.collectionId === collectionId && request.status === 'pending') {
         request.status = 'declined';
         request.respondedAt = new Date().toISOString();
+      }
+    }
+  }
+
+  private expireTradeOffersForCollection(data: StoredData, collectionId: string): void {
+    for (const offer of Object.values(data.tradeOffers)) {
+      if (
+        offer.collectionId === collectionId
+        || offer.reservedCollectionId === collectionId
+      ) {
+        if (offer.status !== 'completed' && offer.status !== 'cancelled') {
+          this.markTradeOfferExpired(offer);
+        }
+      }
+    }
+  }
+
+  private expireTradeOffersForOwnerInCollection(
+    data: StoredData,
+    ownerId: string,
+    collectionId: string,
+  ): void {
+    for (const offer of Object.values(data.tradeOffers)) {
+      const isOwnerTrade = offer.ownerId === ownerId && offer.collectionId === collectionId;
+      const isReservedTrade =
+        offer.reservedByOwnerId === ownerId && offer.reservedCollectionId === collectionId;
+
+      if ((isOwnerTrade || isReservedTrade) && offer.status !== 'completed' && offer.status !== 'cancelled') {
+        this.markTradeOfferExpired(offer);
       }
     }
   }

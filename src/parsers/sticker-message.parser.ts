@@ -296,7 +296,11 @@ const parseTradeCommand = (
 
     for (const giveMatch of parseTradeOperandMatches(remainderTokens, 0)) {
       for (const wantMatch of parseTradeOperandMatches(remainderTokens, giveMatch.nextIndex)) {
-        if (wantMatch.nextIndex === remainderTokens.length) {
+        if (
+          wantMatch.nextIndex === remainderTokens.length
+          && giveMatch.selector.kind !== 'missing'
+          && wantMatch.selector.kind !== 'duplicate'
+        ) {
           return {
             intent: 'tradeCreate',
             give: giveMatch.selector,
