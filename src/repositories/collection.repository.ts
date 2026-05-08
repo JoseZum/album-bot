@@ -5,7 +5,9 @@ import {
   WORLD_CUP_CATALOG,
   formatSticker,
   getAllStickerRefs,
+  getCatalogEntry,
   isKnownSticker,
+  resolveCountry,
   stickerKey,
   type StickerRef,
 } from '../catalog/world-cup.catalog';
@@ -789,7 +791,7 @@ export class CollectionRepository {
     // Get last event for this collector in this album
     const eventResult = await this.db.query<Record<string, unknown>>(
       `SELECT e.id, e.sticker_code, e.action, e.previous_quantity, e.current_quantity, e.created_at,
-              t.code AS team_code, s.sticker_number
+              t.code AS team_code, t.name AS team_name, s.sticker_number
        FROM user_album_events e
        JOIN stickers s ON s.code = e.sticker_code
        LEFT JOIN teams t ON t.id = s.team_id
@@ -806,16 +808,18 @@ export class CollectionRepository {
     const eventRow = eventResult.rows[0];
     const eventId = eventRow.id as number;
     const teamCode = eventRow.team_code as string | null;
+    const teamName = eventRow.team_name as string | null;
     const stickerNumber = eventRow.sticker_number as number | null;
+    const countryCode = this.toCatalogCountryCode(teamCode, teamName);
 
-    if (!teamCode || !stickerNumber) {
+    if (!countryCode || !stickerNumber) {
       // Cannot undo non-team sticker
       await this.db.query(`DELETE FROM user_album_events WHERE id = $1`, [eventId]);
 
       return null;
     }
 
-    const sticker: StickerRef = { countryCode: teamCode, number: stickerNumber };
+    const sticker: StickerRef = { countryCode, number: stickerNumber };
     const previousQuantity = eventRow.previous_quantity as number;
     const currentQuantity = eventRow.current_quantity as number;
     const action = eventRow.action as StickerHistoryAction;
@@ -1748,20 +1752,27 @@ export class CollectionRepository {
   }
 
   private async getStickerDbCode(sticker: StickerRef): Promise<string | null> {
+    const country = getCatalogEntry(sticker.countryCode);
     const result = await this.db.query<{ code: string }>(
       `SELECT s.code
        FROM stickers s
        JOIN teams t ON t.id = s.team_id
-       WHERE t.code = $1 AND s.sticker_number = $2`,
-      [sticker.countryCode, sticker.number],
+       WHERE (t.code = $1 OR ($3::text IS NOT NULL AND upper(t.name) = upper($3)))
+         AND s.sticker_number = $2`,
+      [sticker.countryCode.toUpperCase(), sticker.number, country?.name ?? null],
     );
 
     return result.rows[0]?.code ?? null;
   }
 
   private async getStickerQuantitiesForAlbum(albumId: string): Promise<Record<string, number>> {
-    const result = await this.db.query<{ team_code: string; sticker_number: number; quantity: number }>(
-      `SELECT t.code AS team_code, s.sticker_number, uai.quantity
+    const result = await this.db.query<{
+      team_code: string;
+      team_name: string;
+      sticker_number: number;
+      quantity: number;
+    }>(
+      `SELECT t.code AS team_code, t.name AS team_name, s.sticker_number, uai.quantity
        FROM user_album_items uai
        JOIN stickers s ON s.code = uai.sticker_code
        JOIN teams t ON t.id = s.team_id
@@ -1772,14 +1783,36 @@ export class CollectionRepository {
     const quantities: Record<string, number> = {};
 
     for (const row of result.rows) {
-      if (row.team_code && row.sticker_number) {
-        const key = stickerKey({ countryCode: row.team_code, number: row.sticker_number });
+      const countryCode = this.toCatalogCountryCode(row.team_code, row.team_name);
+
+      if (countryCode && row.sticker_number) {
+        const key = stickerKey({ countryCode, number: row.sticker_number });
 
         quantities[key] = row.quantity;
       }
     }
 
     return quantities;
+  }
+
+  private toCatalogCountryCode(teamCode: string | null | undefined, teamName: string | null | undefined): string | null {
+    if (teamCode) {
+      const directMatch = getCatalogEntry(teamCode);
+
+      if (directMatch) {
+        return directMatch.code;
+      }
+    }
+
+    if (teamName) {
+      const nameMatch = resolveCountry(teamName);
+
+      if (nameMatch) {
+        return nameMatch.code;
+      }
+    }
+
+    return teamCode ?? null;
   }
 
   private async getCollectionSummaryForOwner(

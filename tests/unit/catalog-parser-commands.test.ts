@@ -29,6 +29,7 @@ const BRA3: StickerRef = { countryCode: 'BRA', number: 3 };
 const BRA10: StickerRef = { countryCode: 'BRA', number: 10 };
 const CRC7: StickerRef = { countryCode: 'CRC', number: 7 };
 const FRA10: StickerRef = { countryCode: 'FRA', number: 10 };
+const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 const USA2: StickerRef = { countryCode: 'USA', number: 2 };
 
 const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
@@ -117,6 +118,11 @@ test('parser detects add and remove sticker intents with names flag', () => {
   assert.deepEqual(parseStickerMessage('rm costa rica 7'), {
     intent: 'removeSticker',
     sticker: CRC7,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('add jpn 10'), {
+    intent: 'addSticker',
+    sticker: JPN10,
     showNames: false,
   });
 });

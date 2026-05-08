@@ -54,6 +54,7 @@ type TranslationKey =
   | 'noCountryStickers'
   | 'missingStickers'
   | 'stickerAdded'
+  | 'stickerUnavailable'
   | 'duplicateSuffix'
   | 'stickerRemoved'
   | 'cannotRemove'
@@ -153,6 +154,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     noCountryStickers: 'You do not have stickers from {countryCode}.',
     missingStickers: 'Missing ({count}): {stickers}.',
     stickerAdded: '{label} added. You now have {quantity}{duplicateText}.',
+    stickerUnavailable: 'I could not find {label} in this album.',
     duplicateSuffix: ' ({count} duplicate/s)',
     stickerRemoved: '{label} removed. You now have {quantity}.',
     cannotRemove: 'You cannot remove {label} because you do not have it.',
@@ -290,6 +292,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     noCountryStickers: 'No tienes estampas de {countryCode}.',
     missingStickers: 'Faltantes ({count}): {stickers}.',
     stickerAdded: '{label} agregada. Ahora tienes {quantity}{duplicateText}.',
+    stickerUnavailable: 'No encontre {label} en este album.',
     duplicateSuffix: ' ({count} duplicada/s)',
     stickerRemoved: '{label} eliminada. Ahora tienes {quantity}.',
     cannotRemove: 'No puedes eliminar {label} porque no la tienes.',
@@ -439,6 +442,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     noCountryStickers: '你没有 {countryCode} 的贴纸。',
     missingStickers: '缺少（{count}）：{stickers}。',
     stickerAdded: '已添加 {label}。现在数量：{quantity}{duplicateText}。',
+    stickerUnavailable: 'I could not find {label} in this album.',
     duplicateSuffix: '（{count} 张重复）',
     stickerRemoved: '已删除 {label}。现在数量：{quantity}。',
     cannotRemove: '无法删除 {label}，因为你没有它。',

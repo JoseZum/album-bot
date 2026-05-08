@@ -17,6 +17,7 @@ const ARG2: StickerRef = { countryCode: 'ARG', number: 2 };
 const ARG4: StickerRef = { countryCode: 'ARG', number: 4 };
 const ARG10: StickerRef = { countryCode: 'ARG', number: 10 };
 const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
+const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 
 type Harness = {
   repository: CollectionRepository;
@@ -284,6 +285,25 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   );
   assert.equal(await repository.getQuantity('owner-a', ARG2), 0);
   assert.equal((await service.handleMessage('undo', 'owner-a')).reply, 'There are no actions to undo.');
+});
+
+test('jpn stickers persist with the JPN user-facing code and invalid add text errors', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  const invalidAdd = await service.handleMessage('add ejfewfiowhfo3', 'owner-a');
+
+  assert.equal(invalidAdd.parsed.intent, 'unknown');
+  assert.equal(invalidAdd.reply, 'Send a sticker, for example: add arg4.');
+
+  assert.equal((await service.handleMessage('add jpn 10', 'owner-a')).reply, 'JPN 10 added. You now have 1.');
+  assert.equal(await repository.getQuantity('owner-a', JPN10), 1);
+
+  const country = await service.handleMessage('jpn', 'owner-a');
+
+  assert.match(country.reply, /Japan \(JPN\)\n1\/20 \(5%\)/);
+  assert.match(country.reply, /JPN 10/);
 });
 
 test('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {

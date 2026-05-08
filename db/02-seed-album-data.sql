@@ -30,7 +30,7 @@ VALUES
   ('CUW', 'CURAZAO', 'GROUP E'),
   ('ECU', 'ECUADOR', 'GROUP E'),
   ('GER', 'GERMANY', 'GROUP E'),
-  ('JAP', 'JAPAN', 'GROUP F'),
+  ('JPN', 'JAPAN', 'GROUP F'),
   ('NED', 'NETHERLANDS', 'GROUP F'),
   ('SWE', 'SWEDEN', 'GROUP F'),
   ('TUN', 'TUNISIA', 'GROUP F'),

@@ -373,11 +373,16 @@ export class StickerBotService {
         return { reply: await this.undoLast(ownerId, language) };
       case 'help':
         return this.helpReply(language);
-      case 'unknown':
+      case 'unknown': {
+        const parseError = escapeTelegramHtml(this.translateParseError(parsed.reason, language));
+
         return {
-          reply: `${escapeTelegramHtml(this.translateParseError(parsed.reason, language))}\n\n${t(language, 'help')}`,
+          reply: parsed.reason === 'Indica una estampa, por ejemplo: add arg4.'
+            ? parseError
+            : `${parseError}\n\n${t(language, 'help')}`,
           parseMode: 'HTML',
         };
+      }
     }
   }
 
@@ -970,10 +975,14 @@ export class StickerBotService {
 
     const command = new AddStickerCommand(this.repository, ownerId, sticker);
     const result = await command.execute();
+    const label = formatSticker(sticker, { includeName: showNames });
+
+    if (!result.changed) {
+      return t(language, 'stickerUnavailable', { label });
+    }
 
     await this.recordHistory(ownerId, 'add', result);
 
-    const label = formatSticker(sticker, { includeName: showNames });
     const duplicateText = result.currentQuantity > 1
       ? t(language, 'duplicateSuffix', { count: result.currentQuantity - 1 })
       : '';
