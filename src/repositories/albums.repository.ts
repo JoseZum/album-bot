@@ -1,13 +1,16 @@
-type Album = {
-  id: number;
-  title: string;
+import { WORLD_CUP_CATALOG } from '../catalog/world-cup.catalog';
+
+type AlbumCountry = {
+  code: string;
+  name: string;
+  totalStickers: number;
 };
 
-const albums: Album[] = [
-  { id: 1, title: 'First album' },
-  { id: 2, title: 'Second album' },
-];
+const getAlbumsFromRepository = (): AlbumCountry[] =>
+  WORLD_CUP_CATALOG.map((country) => ({
+    code: country.code,
+    name: country.name,
+    totalStickers: country.totalStickers,
+  }));
 
-const getAlbumsFromRepository = (): Album[] => albums;
-
-export { getAlbumsFromRepository, type Album };
+export { getAlbumsFromRepository, type AlbumCountry };
