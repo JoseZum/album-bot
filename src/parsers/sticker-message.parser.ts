@@ -351,19 +351,25 @@ const parseTradeCommand = (
       };
     }
 
-    const sticker = parseStickerRef(remainder);
+    const directionalStickerMatch = /^-(give|need)\s+(.+)$/i.exec(remainder.trim());
 
-    if (sticker) {
-      return {
-        intent: 'marketplaceSearch',
-        search: { sticker },
-        showNames,
-      };
+    if (directionalStickerMatch) {
+      const sticker = parseStickerRef(directionalStickerMatch[2]);
+
+      if (sticker) {
+        return {
+          intent: 'marketplaceSearch',
+          search: directionalStickerMatch[1].toLowerCase() === 'give'
+            ? { giveSticker: sticker }
+            : { needSticker: sticker },
+          showNames,
+        };
+      }
     }
 
     return {
       intent: 'unknown',
-      reason: 'Marketplace filter must be @username, -mine, or a sticker like arg4.',
+      reason: 'Marketplace filter must be @username, -mine, -give arg4, or -need arg4.',
       showNames,
     };
   }

@@ -13,7 +13,6 @@ import {
 } from '../catalog/world-cup.catalog';
 import type { BotLanguage } from '../i18n/bot.i18n';
 import {
-  tradeSelectorMatchesSticker,
   type MarketplaceSearch,
   type TradeOffer,
   type TradePair,
@@ -758,11 +757,26 @@ export class CollectionRepository {
         !search.ownerUsername
         || data.profiles[offer.ownerId]?.username === search.ownerUsername,
       )
-      .filter((offer) =>
-        !search.sticker
-        || tradeSelectorMatchesSticker(offer.give, search.sticker)
-        || tradeSelectorMatchesSticker(offer.want, search.sticker),
-      )
+      .filter((offer) => {
+        const ownerCollection = data.collections[offer.collectionId];
+
+        if (!ownerCollection) {
+          return false;
+        }
+
+        return (
+          (!search.giveSticker || this.tradeGiveSelectorCanResolveToSticker(
+            offer.give,
+            search.giveSticker,
+            ownerCollection.stickers,
+          ))
+          && (!search.needSticker || this.tradeNeedSelectorCanResolveToSticker(
+            offer.want,
+            search.needSticker,
+            ownerCollection.stickers,
+          ))
+        );
+      })
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .map((offer) => this.cloneTradeOffer(offer));
   }
@@ -1404,6 +1418,42 @@ export class CollectionRepository {
       ownerCollection.stickers,
       takerCollection.stickers,
     );
+  }
+
+  private tradeGiveSelectorCanResolveToSticker(
+    selector: TradeSelector,
+    sticker: StickerRef,
+    ownerStickers: Record<string, number>,
+  ): boolean {
+    const key = stickerKey(sticker);
+
+    if (selector.kind === 'sticker') {
+      return stickerKey(selector.sticker) === key && (ownerStickers[key] ?? 0) >= 1;
+    }
+
+    if (selector.kind === 'duplicate') {
+      return this.matchesTradeSelectorScope(selector, sticker) && (ownerStickers[key] ?? 0) > 1;
+    }
+
+    return false;
+  }
+
+  private tradeNeedSelectorCanResolveToSticker(
+    selector: TradeSelector,
+    sticker: StickerRef,
+    ownerStickers: Record<string, number>,
+  ): boolean {
+    const key = stickerKey(sticker);
+
+    if (selector.kind === 'sticker') {
+      return stickerKey(selector.sticker) === key && (ownerStickers[key] ?? 0) <= 0;
+    }
+
+    if (selector.kind === 'missing') {
+      return this.matchesTradeSelectorScope(selector, sticker) && (ownerStickers[key] ?? 0) <= 0;
+    }
+
+    return false;
   }
 
   private isResolvedGiveStillValid(

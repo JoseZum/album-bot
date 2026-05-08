@@ -43,7 +43,8 @@ export type TradePair = {
 export type MarketplaceSearch = {
   mineOnly?: boolean;
   ownerUsername?: string;
-  sticker?: StickerRef;
+  giveSticker?: StickerRef;
+  needSticker?: StickerRef;
 };
 
 export const isStickerSelector = (
