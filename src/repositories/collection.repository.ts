@@ -3,8 +3,20 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 
 import { getAlbumTemplate } from '../catalog/album-templates.catalog';
-import { stickerKey, type StickerRef } from '../catalog/world-cup.catalog';
+import {
+  WORLD_CUP_CATALOG,
+  isKnownSticker,
+  stickerKey,
+  type StickerRef,
+} from '../catalog/world-cup.catalog';
 import type { BotLanguage } from '../i18n/bot.i18n';
+import {
+  tradeSelectorMatchesSticker,
+  type MarketplaceSearch,
+  type TradeOffer,
+  type TradePair,
+  type TradeSelector,
+} from '../trades/trade.types';
 
 export type StickerHistoryAction = 'add' | 'remove';
 
@@ -74,19 +86,23 @@ type StoredCollection = {
 };
 
 type StoredData = {
-  version: 1;
+  version: 2;
   collections: Record<string, StoredCollection>;
   ownerCollections: Record<string, string>;
   profiles: Record<string, StoredProfile>;
   shareRequests: Record<string, ShareRequest>;
+  tradeOffers: Record<string, TradeOffer>;
+  tradeOfferSequence: number;
 };
 
 const createEmptyData = (): StoredData => ({
-  version: 1,
+  version: 2,
   collections: {},
   ownerCollections: {},
   profiles: {},
   shareRequests: {},
+  tradeOffers: {},
+  tradeOfferSequence: 0,
 });
 
 const DEFAULT_ALBUM_SLUG = 'panini-fifa-world-cup-2026';

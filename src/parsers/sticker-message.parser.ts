@@ -5,12 +5,20 @@ import {
   type CountryCatalogEntry,
   type StickerRef,
 } from '../catalog/world-cup.catalog';
+import {
+  type MarketplaceSearch,
+  type TradeSelector,
+} from '../trades/trade.types';
 
 export type ParsedBotMessage =
   | { intent: 'querySticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'queryCountry'; countryCode: string; showNames: boolean }
   | { intent: 'addSticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'removeSticker'; sticker: StickerRef; showNames: boolean }
+  | { intent: 'tradeCreate'; give: TradeSelector; want: TradeSelector; showNames: boolean }
+  | { intent: 'tradeListMine'; showNames: boolean }
+  | { intent: 'tradeCancel'; tradeId: string; showNames: boolean }
+  | { intent: 'marketplaceSearch'; search: MarketplaceSearch; showNames: boolean }
   | { intent: 'missing'; countryCode?: string; showNames: boolean }
   | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
@@ -48,6 +56,8 @@ const START_ALIASES = new Set(['start', 'menu', 'album', 'albums']);
 const LANGUAGE_ALIASES = new Set(['language', 'lang']);
 const UNDO_ALIASES = new Set(['undo']);
 const HELP_ALIASES = new Set(['help']);
+const MARKETPLACE_ALIASES = new Set(['marketplace']);
+const TRADES_ALIASES = new Set(['trades']);
 
 const ALBUM_CREATE_ALIASES = new Set(['new', 'create']);
 const ALBUM_SELECT_ALIASES = new Set(['use', 'select', 'switch']);
@@ -159,6 +169,202 @@ const parseCountry = (input: string): CountryCatalogEntry | null => {
     .trim();
 
   return cleaned ? resolveCountry(cleaned) ?? null : null;
+};
+
+type TradeOperandMatch = {
+  selector: TradeSelector;
+  nextIndex: number;
+};
+
+const parseStickerRefFromTokens = (
+  tokens: string[],
+  startIndex: number,
+): { sticker: StickerRef; nextIndex: number } | null => {
+  for (let endIndex = startIndex + 1; endIndex <= tokens.length; endIndex += 1) {
+    const sticker = parseStickerRef(tokens.slice(startIndex, endIndex).join(' '));
+
+    if (sticker) {
+      return {
+        sticker,
+        nextIndex: endIndex,
+      };
+    }
+  }
+
+  return null;
+};
+
+const parseTradeOperandMatches = (
+  tokens: string[],
+  startIndex: number,
+): TradeOperandMatch[] => {
+  const token = tokens[startIndex];
+
+  if (!token) {
+    return [];
+  }
+
+  if (token === '-duplicate' || token === '-missing') {
+    const kind = token === '-duplicate' ? 'duplicate' : 'missing';
+    const matches: TradeOperandMatch[] = [
+      {
+        selector: { kind },
+        nextIndex: startIndex + 1,
+      },
+    ];
+
+    for (let endIndex = startIndex + 2; endIndex <= tokens.length; endIndex += 1) {
+      const country = parseCountry(tokens.slice(startIndex + 1, endIndex).join(' '));
+
+      if (country) {
+        matches.push({
+          selector: {
+            kind,
+            countryCode: country.code,
+          },
+          nextIndex: endIndex,
+        });
+      }
+    }
+
+    return matches;
+  }
+
+  const stickerMatch = parseStickerRefFromTokens(tokens, startIndex);
+
+  return stickerMatch
+    ? [
+      {
+        selector: {
+          kind: 'sticker',
+          sticker: stickerMatch.sticker,
+        },
+        nextIndex: stickerMatch.nextIndex,
+      },
+    ]
+    : [];
+};
+
+const normalizeTradeId = (rawTradeId: string): string | null => {
+  const cleaned = rawTradeId.trim().replace(/^#/, '').toUpperCase();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  if (/^T\d+$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  if (/^\d+$/.test(cleaned)) {
+    return `T${cleaned}`;
+  }
+
+  return null;
+};
+
+const parseTradeCommand = (
+  text: string,
+  showNames: boolean,
+): ParsedBotMessage | null => {
+  const normalizedText = normalizeForParsing(text);
+  const tokens = normalizedText.split(/\s+/).filter(Boolean);
+  const firstToken = tokens[0]?.replace(/^\/+/, '');
+
+  if (firstToken === 'trade') {
+    const remainderTokens = tokens.slice(1);
+
+    if (remainderTokens.length === 0) {
+      return {
+        intent: 'unknown',
+        reason: 'Trade format: trade <give> <want>.',
+        showNames,
+      };
+    }
+
+    if (remainderTokens[0] === 'cancel') {
+      const tradeId = normalizeTradeId(remainderTokens[1] ?? '');
+
+      return tradeId
+        ? { intent: 'tradeCancel', tradeId, showNames }
+        : {
+          intent: 'unknown',
+          reason: 'Trade id required. Example: trade cancel T1.',
+          showNames,
+        };
+    }
+
+    for (const giveMatch of parseTradeOperandMatches(remainderTokens, 0)) {
+      for (const wantMatch of parseTradeOperandMatches(remainderTokens, giveMatch.nextIndex)) {
+        if (wantMatch.nextIndex === remainderTokens.length) {
+          return {
+            intent: 'tradeCreate',
+            give: giveMatch.selector,
+            want: wantMatch.selector,
+            showNames,
+          };
+        }
+      }
+    }
+
+    return {
+      intent: 'unknown',
+      reason: 'Trade format: trade <give> <want>.',
+      showNames,
+    };
+  }
+
+  if (TRADES_ALIASES.has(firstToken ?? '')) {
+    return { intent: 'tradeListMine', showNames };
+  }
+
+  if (MARKETPLACE_ALIASES.has(firstToken ?? '')) {
+    const remainder = stripLeadingWords(text, 1);
+
+    if (!remainder) {
+      return {
+        intent: 'marketplaceSearch',
+        search: {},
+        showNames,
+      };
+    }
+
+    if (/^-mine$/i.test(remainder.trim())) {
+      return {
+        intent: 'marketplaceSearch',
+        search: { mineOnly: true },
+        showNames,
+      };
+    }
+
+    const usernameMatch = /^@([a-z0-9_]{5,32})$/i.exec(remainder.trim());
+
+    if (usernameMatch) {
+      return {
+        intent: 'marketplaceSearch',
+        search: { ownerUsername: usernameMatch[1].toLowerCase() },
+        showNames,
+      };
+    }
+
+    const sticker = parseStickerRef(remainder);
+
+    if (sticker) {
+      return {
+        intent: 'marketplaceSearch',
+        search: { sticker },
+        showNames,
+      };
+    }
+
+    return {
+      intent: 'unknown',
+      reason: 'Marketplace filter must be @username, -mine, or a sticker like arg4.',
+      showNames,
+    };
+  }
+
+  return null;
 };
 
 const stripLeadingWords = (input: string, count: number): string =>
@@ -323,6 +529,12 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
 
   if (albumCommand) {
     return albumCommand;
+  }
+
+  const tradeCommand = parseTradeCommand(text, showNames);
+
+  if (tradeCommand) {
+    return tradeCommand;
   }
 
   const normalizedText = normalizeForParsing(text);
