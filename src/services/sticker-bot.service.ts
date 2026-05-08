@@ -324,7 +324,7 @@ export class StickerBotService {
       case 'querySticker':
         return { reply: await this.querySticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'queryCountry':
-        return { reply: await this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language) };
+        return this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language);
       case 'addSticker':
         return { reply: await this.addSticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'removeSticker':
@@ -897,11 +897,11 @@ export class StickerBotService {
     countryCode: string,
     showNames: boolean,
     language: BotLanguage,
-  ): Promise<string> {
+  ): Promise<BotActionResult> {
     const stats = await this.getCountryStats(ownerId, countryCode);
 
     if (!stats) {
-      return t(language, 'unknownCountry', { country: countryCode });
+      return { reply: t(language, 'unknownCountry', { country: countryCode }) };
     }
 
     const country = getCatalogEntry(stats.countryCode)!;
@@ -923,34 +923,37 @@ export class StickerBotService {
       summaryParts.push(t(language, 'countryDuplicates', { duplicates: totalDuplicates }));
     }
 
-    const lines = [
+    const header = [
       t(language, 'countryHeader', {
         flag: getCountryFlag(stats.countryCode),
-        countryCode: stats.countryCode,
-        countryName: stats.countryName,
+        countryCode: escapeTelegramHtml(stats.countryCode),
+        countryName: escapeTelegramHtml(stats.countryName),
       }),
       summaryParts.join(' · '),
-      '',
-    ];
+    ].join('\n');
 
     const numWidth = String(stats.total).length;
+    const rows: string[] = [];
 
     for (let i = 1; i <= stats.total; i++) {
       const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
       const qty = stats.quantities[stickerKey(sticker)] ?? 0;
       const name = showNames ? country.names[i] : undefined;
-      const numStr = String(i).padStart(numWidth, ' ');
-      const nameStr = name ? ` ${name}` : '';
+      const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, ' ')}`;
+      const nameStr = name ? ` ${escapeTelegramHtml(name)}` : '';
 
       if (qty > 0) {
         const dupeStr = qty > 1 ? ` ×${qty}` : '';
-        lines.push(`${numStr}${nameStr} ✅${dupeStr}`);
+        rows.push(`${numStr}${nameStr} ✅${dupeStr}`);
       } else {
-        lines.push(`${numStr}${nameStr} ❌`);
+        rows.push(`${numStr}${nameStr} ❌`);
       }
     }
 
-    return lines.join('\n');
+    return {
+      reply: `${header}\n\n<pre>${rows.join('\n')}</pre>`,
+      parseMode: 'HTML',
+    };
   }
 
   private async addSticker(
