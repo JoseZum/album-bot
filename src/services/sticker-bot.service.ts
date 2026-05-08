@@ -29,6 +29,13 @@ import {
   type StickerHistoryAction,
   type StickerHistoryEntry,
 } from '../repositories/collection.repository';
+import {
+  formatTradeSelector,
+  type MarketplaceSearch,
+  type TradeOffer,
+  type TradePair,
+  type TradeSelector,
+} from '../trades/trade.types';
 
 export type BotMessageResult = {
   reply: string;
@@ -110,12 +117,7 @@ export class StickerBotService {
         replyMarkup: menu.replyMarkup,
       };
     }
-
-    const result = parsed.intent === 'share'
-      ? this.shareAlbum(ownerId, parsed.targetUsername, language)
-      : parsed.intent === 'compare'
-        ? this.compareUser(ownerId, parsed.targetUsername, parsed.countryCode, parsed.showNames, language)
-        : { reply: this.buildReply(parsed, ownerId, language) };
+    const result = this.buildReply(parsed, ownerId, language);
 
     return {
       parsed,
@@ -187,6 +189,65 @@ export class StickerBotService {
       );
     }
 
+    const tradeProposeMatch = /^trade:propose:(T\d+)$/i.exec(callbackData);
+
+    if (tradeProposeMatch) {
+      return this.prepareTradeProposal(ownerId, tradeProposeMatch[1].toUpperCase());
+    }
+
+    const tradePickGiveMatch = /^trade:pickgive:(T\d+):([A-Z]{3}-\d{1,3})$/i.exec(callbackData);
+
+    if (tradePickGiveMatch) {
+      return this.handleTradeGiveSelection(
+        ownerId,
+        tradePickGiveMatch[1].toUpperCase(),
+        tradePickGiveMatch[2].toUpperCase(),
+      );
+    }
+
+    const tradePickWantMatch = /^trade:pickwant:(T\d+):([A-Z]{3}-\d{1,3})$/i.exec(callbackData);
+
+    if (tradePickWantMatch) {
+      return this.handleTradeWantSelection(
+        ownerId,
+        tradePickWantMatch[1].toUpperCase(),
+        tradePickWantMatch[2].toUpperCase(),
+      );
+    }
+
+    const tradePickPairMatch = /^trade:pickpair:(T\d+):([A-Z]{3}-\d{1,3}):([A-Z]{3}-\d{1,3})$/i.exec(callbackData);
+
+    if (tradePickPairMatch) {
+      return this.submitTradeProposal(ownerId, tradePickPairMatch[1].toUpperCase(), {
+        give: stickerFromKey(tradePickPairMatch[2].toUpperCase())!,
+        want: stickerFromKey(tradePickPairMatch[3].toUpperCase())!,
+      });
+    }
+
+    const tradeAcceptMatch = /^trade:accept:(T\d+)$/i.exec(callbackData);
+
+    if (tradeAcceptMatch) {
+      return this.acceptTradeCoordination(ownerId, tradeAcceptMatch[1].toUpperCase());
+    }
+
+    const tradeDeclineMatch = /^trade:decline:(T\d+)$/i.exec(callbackData);
+
+    if (tradeDeclineMatch) {
+      return this.declineTradeCoordination(ownerId, tradeDeclineMatch[1].toUpperCase());
+    }
+
+    const tradeCompleteMatch = /^trade:complete:(T\d+)$/i.exec(callbackData);
+
+    if (tradeCompleteMatch) {
+      return this.confirmTradeCompleted(ownerId, tradeCompleteMatch[1].toUpperCase());
+    }
+
+    const tradeCancelMatch = /^trade:cancel:(T\d+)$/i.exec(callbackData);
+
+    if (tradeCancelMatch) {
+      return this.cancelTrade(ownerId, tradeCancelMatch[1].toUpperCase());
+    }
+
     return this.handleShareResponse(callbackData, ownerId);
   }
 
@@ -243,24 +304,36 @@ export class StickerBotService {
     };
   }
 
-  private buildReply(parsed: ParsedBotMessage, ownerId: string, language: BotLanguage): string {
+  private buildReply(
+    parsed: ParsedBotMessage,
+    ownerId: string,
+    language: BotLanguage,
+  ): BotActionResult {
     switch (parsed.intent) {
       case 'querySticker':
-        return this.querySticker(ownerId, parsed.sticker, parsed.showNames, language);
+        return { reply: this.querySticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'queryCountry':
-        return this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language);
+        return { reply: this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'addSticker':
-        return this.addSticker(ownerId, parsed.sticker, parsed.showNames, language);
+        return { reply: this.addSticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'removeSticker':
-        return this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language);
+        return { reply: this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language) };
+      case 'tradeCreate':
+        return this.createTrade(ownerId, parsed.give, parsed.want);
+      case 'tradeListMine':
+        return this.listMyTrades(ownerId);
+      case 'tradeCancel':
+        return this.cancelTrade(ownerId, parsed.tradeId);
+      case 'marketplaceSearch':
+        return this.searchMarketplace(ownerId, parsed.search);
       case 'missing':
-        return this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language);
+        return { reply: this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'duplicates':
-        return this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language);
+        return { reply: this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'progress':
-        return this.showProgress(ownerId, language);
+        return { reply: this.showProgress(ownerId, language) };
       case 'share':
-        return this.shareAlbum(ownerId, parsed.targetUsername, language).reply;
+        return this.shareAlbum(ownerId, parsed.targetUsername, language);
       case 'compare':
         return this.compareUser(
           ownerId,
@@ -268,30 +341,511 @@ export class StickerBotService {
           parsed.countryCode,
           parsed.showNames,
           language,
-        ).reply;
+        );
       case 'albumList':
-        return this.albumListReply(ownerId, language).reply;
+        return this.albumListReply(ownerId, language);
       case 'albumCreate':
-        return this.createAlbum(ownerId, parsed.albumName, language).reply;
+        return this.createAlbum(ownerId, parsed.albumName, language);
       case 'albumSelect':
-        return this.selectAlbum(ownerId, parsed.selector, language).reply;
+        return this.selectAlbum(ownerId, parsed.selector, language);
       case 'albumRename':
-        return this.renameAlbum(ownerId, parsed.albumName, parsed.selector, language).reply;
+        return this.renameAlbum(ownerId, parsed.albumName, parsed.selector, language);
       case 'albumDelete':
-        return this.deleteAlbum(ownerId, parsed.selector, language).reply;
+        return this.deleteAlbum(ownerId, parsed.selector, language);
       case 'albumLeave':
-        return this.leaveAlbum(ownerId, language).reply;
+        return this.leaveAlbum(ownerId, language);
       case 'start':
-        return this.startMenuReply(ownerId, language).reply;
+        return this.startMenuReply(ownerId, language);
       case 'language':
-        return this.languageSelectionReply().reply;
+        return this.languageSelectionReply();
       case 'undo':
-        return this.undoLast(ownerId, language);
+        return { reply: this.undoLast(ownerId, language) };
       case 'help':
-        return t(language, 'help');
+        return { reply: t(language, 'help') };
       case 'unknown':
-        return `${this.translateParseError(parsed.reason, language)}\n\n${t(language, 'help')}`;
+        return {
+          reply: `${this.translateParseError(parsed.reason, language)}\n\n${t(language, 'help')}`,
+        };
     }
+  }
+
+  private createTrade(
+    ownerId: string,
+    give: TradeSelector,
+    want: TradeSelector,
+  ): BotActionResult {
+    const result = this.repository.createTradeOffer(ownerId, give, want);
+
+    if (result.error || !result.offer) {
+      return {
+        reply: result.error ?? 'Could not post the trade.',
+      };
+    }
+
+    return {
+      reply: `Trade posted: you give ${formatTradeSelector(give)} and want ${formatTradeSelector(want)}.`,
+    };
+  }
+
+  private listMyTrades(ownerId: string): BotActionResult {
+    const offers = this.repository.listTradeOffersForOwner(ownerId);
+
+    if (offers.length === 0) {
+      return { reply: 'You have no active or pending trades.' };
+    }
+
+    const lines = ['Your trades:'];
+
+    for (const offer of offers) {
+      lines.push(this.formatTradeOfferForOwner(offer));
+    }
+
+    return {
+      reply: lines.join('\n\n'),
+      replyMarkup: this.buildOwnerTradeKeyboard(offers),
+    };
+  }
+
+  private cancelTrade(ownerId: string, tradeId: string): BotActionResult {
+    const existingOffer = this.repository.getTradeOffer(tradeId);
+    const result = this.repository.cancelTradeOffer(ownerId, tradeId);
+
+    if (result.error || !result.offer) {
+      return {
+        reply: result.error ?? 'Could not cancel the trade.',
+      };
+    }
+
+    const outboundMessages = existingOffer?.reservedByOwnerId
+      ? [
+        {
+          chatId: existingOffer.reservedByOwnerId,
+          text: `Trade ${tradeId} was cancelled by ${this.getDisplayName(ownerId)}.`,
+        },
+      ]
+      : undefined;
+
+    return {
+      reply: `Trade cancelled: #${result.offer.id}.`,
+      outboundMessages,
+    };
+  }
+
+  private searchMarketplace(ownerId: string, search: MarketplaceSearch): BotActionResult {
+    const offers = this.repository.listMarketplaceTradeOffers(ownerId, search);
+
+    if (offers.length === 0) {
+      return {
+        reply: search.mineOnly
+          ? 'You have no active marketplace offers.'
+          : 'No active trades found.',
+      };
+    }
+
+    const lines = [
+      search.mineOnly ? 'Your marketplace offers:' : 'Marketplace:',
+      ...offers.map((offer) => this.formatMarketplaceTradeOffer(offer)),
+    ];
+
+    return {
+      reply: lines.join('\n\n'),
+      replyMarkup: search.mineOnly
+        ? this.buildOwnerMarketplaceKeyboard(offers)
+        : this.buildMarketplaceKeyboard(offers),
+    };
+  }
+
+  private prepareTradeProposal(ownerId: string, tradeId: string): BotActionResult {
+    const compatibility = this.repository.getCompatibleTradePairs(tradeId, ownerId);
+
+    if (compatibility.error || !compatibility.offer || !compatibility.pairs) {
+      return { reply: compatibility.error ?? 'Could not prepare this trade.' };
+    }
+
+    const offer = compatibility.offer;
+    const hasGiveWildcard = offer.give.kind !== 'sticker';
+    const hasWantWildcard = offer.want.kind !== 'sticker';
+    const explicitWant = offer.want.kind === 'sticker' ? offer.want.sticker : undefined;
+    const explicitGive = offer.give.kind === 'sticker' ? offer.give.sticker : undefined;
+
+    if (!hasGiveWildcard && !hasWantWildcard) {
+      return this.submitTradeProposal(ownerId, tradeId, compatibility.pairs[0]!);
+    }
+
+    if (hasGiveWildcard) {
+      const giveChoices = this.uniqueStickers(
+        compatibility.pairs.map((pair) => pair.give),
+      );
+
+      return {
+        reply: hasWantWildcard
+          ? `Choose the sticker you want to receive from #${offer.id}.`
+          : `Choose the sticker you want to receive from #${offer.id}. You will give ${formatSticker(explicitWant!)}.`,
+        replyMarkup: {
+          inline_keyboard: giveChoices.map((sticker) => [
+            {
+              text: formatSticker(sticker),
+              callback_data: `trade:pickgive:${offer.id}:${stickerKey(sticker)}`,
+            },
+          ]),
+        },
+      };
+    }
+
+    const wantChoices = this.uniqueStickers(
+      compatibility.pairs.map((pair) => pair.want),
+    );
+
+    return {
+      reply: `Choose the sticker you will give for #${offer.id}. You will receive ${formatSticker(explicitGive!)}.`,
+      replyMarkup: {
+        inline_keyboard: wantChoices.map((sticker) => [
+          {
+            text: formatSticker(sticker),
+            callback_data: `trade:pickwant:${offer.id}:${stickerKey(sticker)}`,
+          },
+        ]),
+      },
+    };
+  }
+
+  private handleTradeGiveSelection(ownerId: string, tradeId: string, giveKey: string): BotActionResult {
+    const selectedGive = stickerFromKey(giveKey);
+
+    if (!selectedGive) {
+      return { reply: 'Invalid sticker selection.' };
+    }
+
+    const compatibility = this.repository.getCompatibleTradePairs(tradeId, ownerId);
+
+    if (compatibility.error || !compatibility.offer || !compatibility.pairs) {
+      return { reply: compatibility.error ?? 'Could not prepare this trade.' };
+    }
+
+    const matchingPairs = compatibility.pairs.filter(
+      (pair) => stickerKey(pair.give) === giveKey,
+    );
+
+    if (matchingPairs.length === 0) {
+      return { reply: 'That sticker is no longer available for this trade.' };
+    }
+
+    if (compatibility.offer.want.kind === 'sticker') {
+      return this.submitTradeProposal(ownerId, tradeId, matchingPairs[0]);
+    }
+
+    const wantChoices = this.uniqueStickers(matchingPairs.map((pair) => pair.want));
+
+    return {
+      reply: `Choose the sticker you will give in exchange for ${formatSticker(selectedGive)}.`,
+      replyMarkup: {
+        inline_keyboard: wantChoices.map((sticker) => [
+          {
+            text: formatSticker(sticker),
+            callback_data: `trade:pickpair:${tradeId}:${giveKey}:${stickerKey(sticker)}`,
+          },
+        ]),
+      },
+    };
+  }
+
+  private handleTradeWantSelection(ownerId: string, tradeId: string, wantKey: string): BotActionResult {
+    const selectedWant = stickerFromKey(wantKey);
+
+    if (!selectedWant) {
+      return { reply: 'Invalid sticker selection.' };
+    }
+
+    const compatibility = this.repository.getCompatibleTradePairs(tradeId, ownerId);
+
+    if (compatibility.error || !compatibility.offer || !compatibility.pairs) {
+      return { reply: compatibility.error ?? 'Could not prepare this trade.' };
+    }
+
+    const matchingPairs = compatibility.pairs.filter(
+      (pair) => stickerKey(pair.want) === wantKey,
+    );
+
+    if (matchingPairs.length === 0) {
+      return { reply: 'That sticker is no longer available for this trade.' };
+    }
+
+    if (compatibility.offer.give.kind !== 'sticker') {
+      return { reply: 'Choose the sticker you want to receive first.' };
+    }
+
+    return this.submitTradeProposal(ownerId, tradeId, {
+      give: compatibility.offer.give.sticker,
+      want: selectedWant,
+    });
+  }
+
+  private submitTradeProposal(ownerId: string, tradeId: string, pair: TradePair): BotActionResult {
+    const result = this.repository.reserveTradeOffer(tradeId, ownerId, pair);
+
+    if (result.error || !result.offer || !result.offer.resolvedGive || !result.offer.resolvedWant) {
+      return { reply: result.error ?? 'Could not submit the trade proposal.' };
+    }
+
+    const ownerDisplayName = this.getDisplayName(result.offer.ownerId);
+    const takerDisplayName = this.getDisplayName(ownerId);
+
+    return {
+      reply: `Trade proposal sent to ${ownerDisplayName}.`,
+      outboundMessages: [
+        {
+          chatId: result.offer.ownerId,
+          text: `${takerDisplayName} wants to take your trade: you give ${formatSticker(result.offer.resolvedGive)}, they give ${formatSticker(result.offer.resolvedWant)}.`,
+          replyMarkup: {
+            inline_keyboard: [[
+              {
+                text: 'Accept coordination',
+                callback_data: `trade:accept:${result.offer.id}`,
+              },
+              {
+                text: 'Decline',
+                callback_data: `trade:decline:${result.offer.id}`,
+              },
+            ]],
+          },
+        },
+      ],
+    };
+  }
+
+  private acceptTradeCoordination(ownerId: string, tradeId: string): BotActionResult {
+    const result = this.repository.acceptTradeOffer(tradeId, ownerId);
+
+    if (result.error || !result.offer || !result.offer.reservedByOwnerId) {
+      return { reply: result.error ?? 'Could not accept coordination.' };
+    }
+
+    return {
+      reply: 'Coordination accepted. Press Trade completed after the in-person swap.',
+      replyMarkup: this.buildTradeCompletedKeyboard(result.offer.id),
+      outboundMessages: [
+        {
+          chatId: result.offer.reservedByOwnerId,
+          text: `${this.getDisplayName(ownerId)} accepted coordination for trade #${result.offer.id}. Press Trade completed after the in-person swap.`,
+          replyMarkup: this.buildTradeCompletedKeyboard(result.offer.id),
+        },
+      ],
+    };
+  }
+
+  private declineTradeCoordination(ownerId: string, tradeId: string): BotActionResult {
+    const existingOffer = this.repository.getTradeOffer(tradeId);
+    const result = this.repository.declineTradeOffer(tradeId, ownerId);
+
+    if (result.error || !result.offer) {
+      return { reply: result.error ?? 'Could not decline coordination.' };
+    }
+
+    return {
+      reply: `Trade proposal declined for #${result.offer.id}.`,
+      outboundMessages: existingOffer?.reservedByOwnerId
+        ? [
+          {
+            chatId: existingOffer.reservedByOwnerId,
+            text: `${this.getDisplayName(ownerId)} declined your proposal for trade #${tradeId}.`,
+          },
+        ]
+        : undefined,
+    };
+  }
+
+  private confirmTradeCompleted(ownerId: string, tradeId: string): BotActionResult {
+    const result = this.repository.confirmTradeOfferCompleted(tradeId, ownerId);
+
+    if (result.error || !result.offer) {
+      return { reply: result.error ?? 'Could not confirm completion.' };
+    }
+
+    const counterpartOwnerId = result.offer.ownerId === ownerId
+      ? result.offer.reservedByOwnerId
+      : result.offer.ownerId;
+
+    if (result.completed) {
+      return {
+        reply: 'Trade completed. Inventory updated.',
+        outboundMessages: counterpartOwnerId
+          ? [
+            {
+              chatId: counterpartOwnerId,
+              text: 'Trade completed. Inventory updated.',
+            },
+          ]
+          : undefined,
+      };
+    }
+
+    if (result.waitingForOther) {
+      return {
+        reply: result.alreadyConfirmed
+          ? 'Completion already confirmed. Waiting for the other person.'
+          : 'Completion confirmed. Waiting for the other person.',
+        replyMarkup: this.buildTradeCompletedKeyboard(tradeId),
+        outboundMessages: !result.alreadyConfirmed && counterpartOwnerId
+          ? [
+            {
+              chatId: counterpartOwnerId,
+              text: `${this.getDisplayName(ownerId)} marked trade #${tradeId} as completed. Confirm when your in-person swap is done.`,
+              replyMarkup: this.buildTradeCompletedKeyboard(tradeId),
+            },
+          ]
+          : undefined,
+      };
+    }
+
+    return { reply: 'Completion updated.' };
+  }
+
+  private formatMarketplaceTradeOffer(offer: TradeOffer): string {
+    const ownerDisplayName = this.getDisplayName(offer.ownerId);
+    const collection = this.repository.getCollectionSummaryById(offer.collectionId);
+    const header = `#${offer.id} ${ownerDisplayName} gives ${formatTradeSelector(offer.give)} for ${formatTradeSelector(offer.want)}`;
+    const metadata = [
+      collection ? `Album: ${collection.name}` : undefined,
+      `Created: ${this.formatShortDate(offer.createdAt)}`,
+    ].filter(Boolean).join(' | ');
+
+    return `${header}\n${metadata}`;
+  }
+
+  private formatTradeOfferForOwner(offer: TradeOffer): string {
+    const collection = this.repository.getCollectionSummaryById(offer.collectionId);
+    const status = offer.status === 'active'
+      ? this.repository.isTradeOfferCurrentlyValid(offer.id)
+        ? 'active'
+        : 'active, hidden'
+      : offer.status === 'pending_confirmation'
+        ? 'pending confirmation'
+        : 'accepted, waiting completion';
+    const lines = [
+      `#${offer.id} [${status}] you give ${formatTradeSelector(offer.give)} and want ${formatTradeSelector(offer.want)}`,
+      [
+        collection ? `Album: ${collection.name}` : undefined,
+        `Created: ${this.formatShortDate(offer.createdAt)}`,
+      ].filter(Boolean).join(' | '),
+    ];
+
+    if (offer.status === 'pending_confirmation' && offer.resolvedGive && offer.resolvedWant && offer.reservedByOwnerId) {
+      lines.push(
+        `${this.getDisplayName(offer.reservedByOwnerId)} proposes: you give ${formatSticker(offer.resolvedGive)}, they give ${formatSticker(offer.resolvedWant)}.`,
+      );
+    }
+
+    if (offer.status === 'accepted_pending_completion' && offer.resolvedGive && offer.resolvedWant) {
+      lines.push(
+        `Accepted pair: you give ${formatSticker(offer.resolvedGive)} and receive ${formatSticker(offer.resolvedWant)}.`,
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  private buildMarketplaceKeyboard(offers: TradeOffer[]): unknown {
+    return {
+      inline_keyboard: offers.map((offer) => [
+        {
+          text: `Propose trade #${offer.id}`,
+          callback_data: `trade:propose:${offer.id}`,
+        },
+      ]),
+    };
+  }
+
+  private buildOwnerMarketplaceKeyboard(offers: TradeOffer[]): unknown {
+    return {
+      inline_keyboard: offers.map((offer) => [
+        {
+          text: `Cancel #${offer.id}`,
+          callback_data: `trade:cancel:${offer.id}`,
+        },
+      ]),
+    };
+  }
+
+  private buildOwnerTradeKeyboard(offers: TradeOffer[]): unknown | undefined {
+    const rows = offers.flatMap((offer) => {
+      if (offer.status === 'active') {
+        return [[
+          {
+            text: `Cancel #${offer.id}`,
+            callback_data: `trade:cancel:${offer.id}`,
+          },
+        ]];
+      }
+
+      if (offer.status === 'pending_confirmation') {
+        return [
+          [
+            {
+              text: `Accept #${offer.id}`,
+              callback_data: `trade:accept:${offer.id}`,
+            },
+            {
+              text: `Decline #${offer.id}`,
+              callback_data: `trade:decline:${offer.id}`,
+            },
+          ],
+          [
+            {
+              text: `Cancel #${offer.id}`,
+              callback_data: `trade:cancel:${offer.id}`,
+            },
+          ],
+        ];
+      }
+
+      if (offer.status === 'accepted_pending_completion') {
+        return [[
+          {
+            text: `Trade completed #${offer.id}`,
+            callback_data: `trade:complete:${offer.id}`,
+          },
+        ]];
+      }
+
+      return [];
+    });
+
+    return rows.length > 0
+      ? { inline_keyboard: rows }
+      : undefined;
+  }
+
+  private buildTradeCompletedKeyboard(tradeId: string): unknown {
+    return {
+      inline_keyboard: [[
+        {
+          text: 'Trade completed',
+          callback_data: `trade:complete:${tradeId}`,
+        },
+      ]],
+    };
+  }
+
+  private uniqueStickers(stickers: StickerRef[]): StickerRef[] {
+    const map = new Map<string, StickerRef>();
+
+    for (const sticker of stickers) {
+      map.set(stickerKey(sticker), sticker);
+    }
+
+    return sortStickers([...map.values()]);
+  }
+
+  private getDisplayName(ownerId: string | undefined): string {
+    if (!ownerId) {
+      return 'Unknown user';
+    }
+
+    return this.repository.getProfile(ownerId)?.displayName ?? ownerId;
+  }
+
+  private formatShortDate(timestamp: string): string {
+    return timestamp.slice(0, 10);
   }
 
   private querySticker(
@@ -1114,6 +1668,7 @@ export class StickerBotService {
       'queryCountry',
       'addSticker',
       'removeSticker',
+      'tradeCreate',
       'missing',
       'duplicates',
       'progress',
@@ -1130,6 +1685,10 @@ export class StickerBotService {
 
     if (reason === 'Indica una estampa, por ejemplo: add arg4.') {
       return t(language, 'stickerRequired');
+    }
+
+    if (/^(Trade|Marketplace)\b/.test(reason)) {
+      return reason;
     }
 
     return t(language, 'unknownCommand');
