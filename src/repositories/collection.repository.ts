@@ -5,6 +5,8 @@ import { randomUUID } from 'crypto';
 import { getAlbumTemplate } from '../catalog/album-templates.catalog';
 import {
   WORLD_CUP_CATALOG,
+  formatSticker,
+  getAllStickerRefs,
   isKnownSticker,
   stickerKey,
   type StickerRef,
@@ -364,6 +366,7 @@ export class CollectionRepository {
     collection.members = [];
     this.removeActiveCollectionReferences(data, collectionId);
     this.expirePendingShareRequests(data, collectionId);
+    this.expireTradeOffersForCollection(data, collectionId);
     this.writeData(data);
 
     return { album: summary };
@@ -390,6 +393,8 @@ export class CollectionRepository {
     if (data.ownerCollections[normalizedOwnerId] === collectionId) {
       delete data.ownerCollections[normalizedOwnerId];
     }
+
+    this.expireTradeOffersForOwnerInCollection(data, normalizedOwnerId, collectionId);
 
     this.writeData(data);
 
@@ -642,6 +647,427 @@ export class CollectionRepository {
     };
   }
 
+  getCollectionSummaryById(collectionId: string): CollectionSummary | null {
+    const data = this.readData();
+    const collection = data.collections[collectionId];
+
+    if (!collection || collection.deletedAt) {
+      return null;
+    }
+
+    return this.toCollectionSummary(
+      data,
+      collectionId,
+      collection,
+      collection.ownerId,
+      undefined,
+    );
+  }
+
+  createTradeOffer(
+    ownerId: string,
+    give: TradeSelector,
+    want: TradeSelector,
+  ): { offer?: TradeOffer; error?: string } {
+    const data = this.readData();
+    const activeCollection = this.getActiveCollection(data, ownerId);
+
+    if (!activeCollection) {
+      return { error: 'No active album.' };
+    }
+
+    const giveError = this.validateTradeGiveSelector(
+      activeCollection.collection.stickers,
+      give,
+    );
+
+    if (giveError) {
+      return { error: giveError };
+    }
+
+    const wantError = this.validateTradeWantSelector(
+      activeCollection.collection.stickers,
+      want,
+    );
+
+    if (wantError) {
+      return { error: wantError };
+    }
+
+    const nextSequence = data.tradeOfferSequence + 1;
+    const offer: TradeOffer = {
+      id: `T${nextSequence}`,
+      ownerId: this.normalizeOwnerId(ownerId),
+      collectionId: activeCollection.id,
+      give,
+      want,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    data.tradeOfferSequence = nextSequence;
+    data.tradeOffers[offer.id] = offer;
+    this.writeData(data);
+
+    return {
+      offer: this.cloneTradeOffer(offer),
+    };
+  }
+
+  listTradeOffersForOwner(ownerId: string): TradeOffer[] {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+
+    return Object.values(data.tradeOffers)
+      .filter((offer) => offer.ownerId === normalizedOwnerId)
+      .filter((offer) => offer.status !== 'completed' && offer.status !== 'cancelled')
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((offer) => this.cloneTradeOffer(offer));
+  }
+
+  listMarketplaceTradeOffers(
+    viewerOwnerId: string | undefined,
+    search: MarketplaceSearch = {},
+  ): TradeOffer[] {
+    const data = this.readData();
+    const normalizedViewerOwnerId = viewerOwnerId
+      ? this.normalizeOwnerId(viewerOwnerId)
+      : undefined;
+    const viewerCollectionId = normalizedViewerOwnerId
+      ? data.ownerCollections[normalizedViewerOwnerId]
+      : undefined;
+
+    return Object.values(data.tradeOffers)
+      .filter((offer) => offer.status === 'active')
+      .filter((offer) => this.isTradeOfferValid(data, offer))
+      .filter((offer) =>
+        search.mineOnly
+          ? offer.ownerId === normalizedViewerOwnerId
+          : offer.ownerId !== normalizedViewerOwnerId,
+      )
+      .filter((offer) => search.mineOnly || !viewerCollectionId || offer.collectionId !== viewerCollectionId)
+      .filter((offer) =>
+        !search.ownerUsername
+        || data.profiles[offer.ownerId]?.username === search.ownerUsername,
+      )
+      .filter((offer) =>
+        !search.sticker
+        || tradeSelectorMatchesSticker(offer.give, search.sticker)
+        || tradeSelectorMatchesSticker(offer.want, search.sticker),
+      )
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((offer) => this.cloneTradeOffer(offer));
+  }
+
+  getTradeOffer(tradeId: string): TradeOffer | null {
+    const data = this.readData();
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+
+    return offer ? this.cloneTradeOffer(offer) : null;
+  }
+
+  isTradeOfferCurrentlyValid(tradeId: string): boolean {
+    const data = this.readData();
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+
+    return offer ? this.isTradeOfferValid(data, offer) : false;
+  }
+
+  cancelTradeOffer(
+    ownerId: string,
+    tradeId: string,
+  ): { offer?: TradeOffer; error?: string } {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+
+    if (!offer || offer.ownerId !== normalizedOwnerId) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (offer.status !== 'active' && offer.status !== 'pending_confirmation') {
+      return { error: 'Only active or pending trades can be cancelled.' };
+    }
+
+    offer.status = 'cancelled';
+    offer.cancelledAt = new Date().toISOString();
+    this.writeData(data);
+
+    return { offer: this.cloneTradeOffer(offer) };
+  }
+
+  getCompatibleTradePairs(
+    tradeId: string,
+    takerOwnerId: string,
+  ): { offer?: TradeOffer; pairs?: TradePair[]; error?: string } {
+    const data = this.readData();
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+
+    if (!offer) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (offer.status !== 'active') {
+      return { error: 'This trade is no longer active.' };
+    }
+
+    const normalizedTakerOwnerId = this.normalizeOwnerId(takerOwnerId);
+
+    if (offer.ownerId === normalizedTakerOwnerId) {
+      return { error: 'You cannot take your own trade.' };
+    }
+
+    const takerCollection = this.getActiveCollection(data, normalizedTakerOwnerId);
+
+    if (!takerCollection) {
+      return { error: 'No active album.' };
+    }
+
+    if (takerCollection.id === offer.collectionId) {
+      return { error: 'This trade already belongs to your active shared album.' };
+    }
+
+    if (!this.isTradeOfferValid(data, offer)) {
+      return { error: 'Trade expired.' };
+    }
+
+    const pairs = this.getCompatiblePairs(data, offer, takerCollection.id);
+
+    if (pairs.length === 0) {
+      return { error: 'No compatible sticker pair found right now.' };
+    }
+
+    return {
+      offer: this.cloneTradeOffer(offer),
+      pairs,
+    };
+  }
+
+  reserveTradeOffer(
+    tradeId: string,
+    takerOwnerId: string,
+    pair?: TradePair,
+  ): { offer?: TradeOffer; error?: string } {
+    const data = this.readData();
+    const normalizedTradeId = tradeId.toUpperCase();
+    const normalizedTakerOwnerId = this.normalizeOwnerId(takerOwnerId);
+    const offer = data.tradeOffers[normalizedTradeId];
+
+    if (!offer) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (offer.status !== 'active') {
+      return { error: 'This trade is no longer active.' };
+    }
+
+    if (offer.ownerId === normalizedTakerOwnerId) {
+      return { error: 'You cannot take your own trade.' };
+    }
+
+    const takerCollection = this.getActiveCollection(data, normalizedTakerOwnerId);
+
+    if (!takerCollection) {
+      return { error: 'No active album.' };
+    }
+
+    if (takerCollection.id === offer.collectionId) {
+      return { error: 'This trade already belongs to your active shared album.' };
+    }
+
+    if (!this.isTradeOfferValid(data, offer)) {
+      this.markTradeOfferExpired(offer);
+      this.writeData(data);
+
+      return { error: 'Trade expired.' };
+    }
+
+    const compatiblePairs = this.getCompatiblePairs(data, offer, takerCollection.id);
+
+    if (compatiblePairs.length === 0) {
+      return { error: 'No compatible sticker pair found right now.' };
+    }
+
+    const resolvedPair = pair
+      ? compatiblePairs.find((candidate) => this.tradePairsEqual(candidate, pair))
+      : compatiblePairs.length === 1
+        ? compatiblePairs[0]
+        : undefined;
+
+    if (!resolvedPair) {
+      return { error: 'Choose an exact sticker pair first.' };
+    }
+
+    offer.status = 'pending_confirmation';
+    offer.reservedByOwnerId = normalizedTakerOwnerId;
+    offer.reservedCollectionId = takerCollection.id;
+    offer.resolvedGive = resolvedPair.give;
+    offer.resolvedWant = resolvedPair.want;
+    offer.ownerConfirmedAt = undefined;
+    offer.takerConfirmedAt = undefined;
+    this.writeData(data);
+
+    return {
+      offer: this.cloneTradeOffer(offer),
+    };
+  }
+
+  acceptTradeOffer(
+    tradeId: string,
+    ownerId: string,
+  ): { offer?: TradeOffer; error?: string } {
+    const data = this.readData();
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+
+    if (!offer || offer.ownerId !== normalizedOwnerId) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (offer.status !== 'pending_confirmation') {
+      return { error: 'This trade is not waiting for coordination.' };
+    }
+
+    if (!this.isTradeOfferValid(data, offer)) {
+      this.markTradeOfferExpired(offer);
+      this.writeData(data);
+
+      return { error: 'Trade expired.' };
+    }
+
+    offer.status = 'accepted_pending_completion';
+    offer.ownerConfirmedAt = undefined;
+    offer.takerConfirmedAt = undefined;
+    this.writeData(data);
+
+    return {
+      offer: this.cloneTradeOffer(offer),
+    };
+  }
+
+  declineTradeOffer(
+    tradeId: string,
+    ownerId: string,
+  ): { offer?: TradeOffer; error?: string } {
+    const data = this.readData();
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+
+    if (!offer || offer.ownerId !== normalizedOwnerId) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (offer.status !== 'pending_confirmation') {
+      return { error: 'This trade is not waiting for coordination.' };
+    }
+
+    this.clearTradeReservation(offer);
+    this.writeData(data);
+
+    return {
+      offer: this.cloneTradeOffer(offer),
+    };
+  }
+
+  confirmTradeOfferCompleted(
+    tradeId: string,
+    actorOwnerId: string,
+  ): {
+    offer?: TradeOffer;
+    completed?: boolean;
+    waitingForOther?: boolean;
+    alreadyConfirmed?: boolean;
+    error?: string;
+  } {
+    const data = this.readData();
+    const offer = data.tradeOffers[tradeId.toUpperCase()];
+    const normalizedActorOwnerId = this.normalizeOwnerId(actorOwnerId);
+
+    if (!offer) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (
+      offer.ownerId !== normalizedActorOwnerId
+      && offer.reservedByOwnerId !== normalizedActorOwnerId
+    ) {
+      return { error: 'Trade not found.' };
+    }
+
+    if (offer.status !== 'accepted_pending_completion') {
+      if (offer.status === 'completed') {
+        return { offer: this.cloneTradeOffer(offer), completed: true };
+      }
+
+      return { error: 'This trade is not waiting for completion.' };
+    }
+
+    if (!this.isTradeOfferValid(data, offer)) {
+      this.markTradeOfferExpired(offer);
+      this.writeData(data);
+
+      return { error: 'Trade expired.' };
+    }
+
+    const isOwnerConfirmation = offer.ownerId === normalizedActorOwnerId;
+    const timestamp = new Date().toISOString();
+    const alreadyConfirmed = isOwnerConfirmation
+      ? Boolean(offer.ownerConfirmedAt)
+      : Boolean(offer.takerConfirmedAt);
+
+    if (!alreadyConfirmed) {
+      if (isOwnerConfirmation) {
+        offer.ownerConfirmedAt = timestamp;
+      } else {
+        offer.takerConfirmedAt = timestamp;
+      }
+    }
+
+    if (offer.ownerConfirmedAt && offer.takerConfirmedAt) {
+      const ownerCollection = data.collections[offer.collectionId];
+      const takerCollection = offer.reservedCollectionId
+        ? data.collections[offer.reservedCollectionId]
+        : undefined;
+
+      if (
+        !ownerCollection
+        || ownerCollection.deletedAt
+        || !takerCollection
+        || takerCollection.deletedAt
+        || !offer.resolvedGive
+        || !offer.resolvedWant
+      ) {
+        this.markTradeOfferExpired(offer);
+        this.writeData(data);
+
+        return { error: 'Trade expired.' };
+      }
+
+      this.changeCollectionStickerQuantity(ownerCollection, offer.resolvedGive, -1);
+      this.changeCollectionStickerQuantity(ownerCollection, offer.resolvedWant, 1);
+      this.changeCollectionStickerQuantity(takerCollection, offer.resolvedWant, -1);
+      this.changeCollectionStickerQuantity(takerCollection, offer.resolvedGive, 1);
+
+      offer.status = 'completed';
+      offer.completedAt = timestamp;
+      this.writeData(data);
+
+      return {
+        offer: this.cloneTradeOffer(offer),
+        completed: true,
+        alreadyConfirmed,
+      };
+    }
+
+    this.writeData(data);
+
+    return {
+      offer: this.cloneTradeOffer(offer),
+      waitingForOther: true,
+      alreadyConfirmed,
+    };
+  }
+
   private readData(): StoredData {
     const filePath = this.getFilePath();
 
@@ -702,11 +1128,13 @@ export class CollectionRepository {
 
   private normalizeData(data: Partial<StoredData>): StoredData {
     const normalizedData: StoredData = {
-      version: 1,
+      version: 2,
       collections: data.collections ?? {},
       ownerCollections: data.ownerCollections ?? {},
       profiles: data.profiles ?? {},
       shareRequests: data.shareRequests ?? {},
+      tradeOffers: data.tradeOffers ?? {},
+      tradeOfferSequence: data.tradeOfferSequence ?? 0,
     };
 
     const albumTemplate = getAlbumTemplate(DEFAULT_ALBUM_SLUG);
@@ -759,6 +1187,52 @@ export class CollectionRepository {
       if (!collection || collection.deletedAt) {
         request.status = request.status === 'pending' ? 'declined' : request.status;
         request.respondedAt ??= new Date().toISOString();
+      }
+    }
+
+    for (const [tradeId, offer] of Object.entries(normalizedData.tradeOffers)) {
+      offer.id = (offer.id ?? tradeId).toUpperCase();
+      offer.ownerId = this.normalizeOwnerId(offer.ownerId);
+      offer.status ??= 'active';
+      offer.createdAt ??= new Date().toISOString();
+      offer.reservedByOwnerId = offer.reservedByOwnerId
+        ? this.normalizeOwnerId(offer.reservedByOwnerId)
+        : undefined;
+      offer.collectionId ??= normalizedData.ownerCollections[offer.ownerId];
+
+      if (
+        (offer.status === 'pending_confirmation' || offer.status === 'accepted_pending_completion')
+        && (!offer.resolvedGive || !offer.resolvedWant || !offer.reservedByOwnerId)
+      ) {
+        offer.status = 'expired';
+      }
+
+      const ownerCollection = offer.collectionId
+        ? normalizedData.collections[offer.collectionId]
+        : undefined;
+      const reservedCollection = offer.reservedCollectionId
+        ? normalizedData.collections[offer.reservedCollectionId]
+        : undefined;
+
+      if (!ownerCollection || ownerCollection.deletedAt) {
+        if (offer.status !== 'completed' && offer.status !== 'cancelled') {
+          offer.status = 'expired';
+        }
+      }
+
+      if (
+        offer.reservedCollectionId
+        && (!reservedCollection || reservedCollection.deletedAt)
+        && offer.status !== 'completed'
+        && offer.status !== 'cancelled'
+      ) {
+        offer.status = 'expired';
+      }
+
+      const numericId = Number(offer.id.replace(/^T/, ''));
+
+      if (Number.isFinite(numericId)) {
+        normalizedData.tradeOfferSequence = Math.max(normalizedData.tradeOfferSequence, numericId);
       }
     }
 
