@@ -167,7 +167,7 @@ test('POST /api/bot/message registers user and returns language selection then s
   assert.equal(started.response.status, 200);
 
   const startedData = responseData(started.body);
-  assert.match(String(startedData.reply), /^Album menu/);
+  assert.match(String(startedData.reply), /^<b>Album menu<\/b>/);
   assert.match(String(startedData.reply), /No active album yet/);
   assert.match(JSON.stringify(startedData.replyMarkup), /album:create:panini-fifa-world-cup-2026/);
 }));

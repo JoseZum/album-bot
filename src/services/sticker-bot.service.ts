@@ -84,6 +84,25 @@ const escapeTelegramHtml = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+const compressRanges = (nums: number[]): string => {
+  if (nums.length === 0) return '—';
+  const parts: string[] = [];
+  let start = nums[0];
+  let end = nums[0];
+
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] === end + 1) {
+      end = nums[i];
+    } else {
+      parts.push(start === end ? String(start) : `${start}-${end}`);
+      start = end = nums[i];
+    }
+  }
+  parts.push(start === end ? String(start) : `${start}-${end}`);
+
+  return parts.join(' ');
+};
+
 export class StickerBotService {
   constructor(private readonly repository: CollectionRepository = collectionRepository) {}
 
@@ -1044,26 +1063,51 @@ export class StickerBotService {
       summaryParts.join(' · '),
     ].join('\n');
 
-    const numWidth = String(stats.total).length;
-    const rows: string[] = [];
+    if (showNames) {
+      const numWidth = String(stats.total).length;
+      const rows: string[] = [];
+
+      for (let i = 1; i <= stats.total; i++) {
+        const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
+        const qty = stats.quantities[stickerKey(sticker)] ?? 0;
+        const name = country.names[i];
+        const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, '⠀')}`;
+        const nameStr = name ? ` ${name}` : '';
+
+        if (qty > 0) {
+          const dupeStr = qty > 1 ? ` ×${qty}` : '';
+          rows.push(`${numStr}${nameStr} ✅${dupeStr}`);
+        } else {
+          rows.push(`${numStr}${nameStr} ❌`);
+        }
+      }
+
+      return {
+        reply: `${header}\n\n${rows.join('\n')}`,
+        parseMode: 'HTML',
+      };
+    }
+
+    const ownedParts: string[] = [];
+    const missingNums: number[] = [];
 
     for (let i = 1; i <= stats.total; i++) {
       const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
       const qty = stats.quantities[stickerKey(sticker)] ?? 0;
-      const name = showNames ? country.names[i] : undefined;
-      const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, '⠀')}`;
-      const nameStr = name ? ` ${name}` : '';
 
       if (qty > 0) {
-        const dupeStr = qty > 1 ? ` ×${qty}` : '';
-        rows.push(`${numStr}${nameStr} ✅${dupeStr}`);
+        ownedParts.push(qty > 1 ? `${i}×${qty}` : String(i));
       } else {
-        rows.push(`${numStr}${nameStr} ❌`);
+        missingNums.push(i);
       }
     }
 
+    const ownedStr = ownedParts.length > 0 ? ownedParts.join(' ') : '—';
+    const missingStr = compressRanges(missingNums);
+
     return {
-      reply: `${header}\n\n${rows.join('\n')}`,
+      reply: `${header}\n\n✅ ${ownedStr}\n❌ ${missingStr}`,
+      parseMode: 'HTML',
     };
   }
 
