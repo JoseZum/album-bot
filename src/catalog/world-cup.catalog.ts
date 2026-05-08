@@ -24,11 +24,12 @@ const createCountry = (
   name: string,
   aliases: string[],
   names: Record<number, string> = {},
+  total = DEFAULT_TOTAL_STICKERS,
 ): CountryCatalogEntry => ({
   code,
   name,
   aliases: [code, name, ...aliases],
-  totalStickers: DEFAULT_TOTAL_STICKERS,
+  totalStickers: total,
   names,
 });
 
@@ -88,6 +89,38 @@ export const WORLD_CUP_CATALOG: CountryCatalogEntry[] = [
   createCountry('URU', 'Uruguay', ['uruguay', 'uru']),
   createCountry('USA', 'United States', ['estados unidos', 'usa', 'eeuu', 'us', 'united states']),
   createCountry('WAL', 'Wales', ['gales', 'wales', 'wal']),
+  createCountry('FWC', 'FIFA World Cup', ['fwc', 'world cup', 'fifa world cup'], {
+    9: 'Italia 1934',
+    10: 'Brazil 1950',
+    11: 'Switzerland 1954',
+    12: 'Chile 1962',
+    13: 'Germany 1974',
+    14: 'Mexico 1986',
+    15: 'United States 1994',
+    16: 'South Korea/Japan 2002',
+    17: 'Germany 2006',
+    18: 'Brazil 2014',
+    19: 'Qatar 2022',
+  }, 19),
+  createCountry('CC', 'Coca Cola', ['cc', 'coca cola', 'cocacola'], {
+    1: 'Lamine Yamal',
+    2: 'Joshua Kimmich',
+    3: 'Harry Kane',
+    4: 'Santiago Gimenez',
+    5: 'Josko Gvardiol',
+    6: 'Federico Valverde',
+    7: 'Jefferson Lerma',
+    8: 'Enner Valencia',
+    9: 'Gabriel Magalhaes',
+    10: 'Virgil van Dijk',
+    11: 'Alphonso Davies',
+    12: 'Emiliano Martinez',
+    13: 'Raul Jimenez',
+    14: 'Lautaro Martinez',
+  }, 14),
+  createCountry('WP', 'We Are Panini', ['wp', 'we are panini'], {
+    1: 'We Are Panini',
+  }, 1),
 ];
 
 const countriesByCode = new Map(
@@ -189,6 +222,7 @@ const COUNTRY_FLAGS: Record<string, string> = {
   MEX: '🇲🇽', NED: '🇳🇱', POL: '🇵🇱', POR: '🇵🇹',
   QAT: '🇶🇦', SEN: '🇸🇳', SRB: '🇷🇸', SUI: '🇨🇭',
   TUN: '🇹🇳', URU: '🇺🇾', USA: '🇺🇸', WAL: '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+  FWC: '🏆', CC: '🥤', WP: '📔',
 };
 
 export const getCountryFlag = (countryCode: string): string =>

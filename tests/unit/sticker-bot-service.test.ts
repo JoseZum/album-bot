@@ -253,9 +253,9 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
 
   assert.equal(progress.reply, [
     'Overall progress',
-    'You have 2/640 unique stickers (0.3%).',
+    'You have 2/674 unique stickers (0.3%).',
     'Duplicates: 1.',
-    'Started countries: 1/32.',
+    'Started countries: 1/35.',
   ].join('\n'));
 
   assert.equal((await service.handleMessage('rm arg4', 'owner-a')).reply, 'ARG 4 removed. You now have 0.');
