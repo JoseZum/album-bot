@@ -28,6 +28,7 @@ import {
   collectionRepository,
   type CollectionSummary,
   type CollectionRepository,
+  type FriendSummary,
   type StickerHistoryAction,
   type StickerHistoryEntry,
 } from '../repositories/collection.repository';
@@ -194,6 +195,32 @@ export class StickerBotService {
         reply: `${t(language, 'languageSaved')}\n\n${menu.reply}`,
         replyMarkup: menu.replyMarkup,
       };
+    }
+
+    const albumDeleteMatch = /^album:delete:([0-9a-f-]{36}):(confirm|cancel)$/i.exec(callbackData);
+
+    if (albumDeleteMatch) {
+      const language = await this.getLanguage(ownerId) ?? 'en';
+
+      return albumDeleteMatch[2] === 'confirm'
+        ? this.deleteAlbumConfirmed(ownerId, albumDeleteMatch[1], language)
+        : { reply: t(language, 'confirmationCancelled') };
+    }
+
+    const friendResponseMatch = /^friend:(accept|decline):(.+)$/i.exec(callbackData);
+
+    if (friendResponseMatch) {
+      return this.handleFriendResponse(friendResponseMatch[1] as 'accept' | 'decline', friendResponseMatch[2], ownerId);
+    }
+
+    const friendRemoveMatch = /^friend:remove:([a-z0-9_]{5,32}):(confirm|cancel)$/i.exec(callbackData);
+
+    if (friendRemoveMatch) {
+      const language = await this.getLanguage(ownerId) ?? 'en';
+
+      return friendRemoveMatch[2] === 'confirm'
+        ? this.removeFriendConfirmed(ownerId, friendRemoveMatch[1].toLowerCase(), language)
+        : { reply: t(language, 'confirmationCancelled') };
     }
 
     const albumMatch = /^album:(create|select):(.+)$/.exec(callbackData);
@@ -392,7 +419,28 @@ export class StickerBotService {
       case 'missing':
         return { reply: await this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'duplicates':
-        return { reply: await this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language) };
+        return {
+          reply: parsed.targetUsername
+            ? await this.showUserDuplicates(
+              ownerId,
+              parsed.targetUsername,
+              parsed.countryCode,
+              parsed.sticker,
+              parsed.showNames,
+              language,
+            )
+            : await this.showDuplicates(ownerId, parsed.countryCode, parsed.sticker, parsed.showNames, language),
+        };
+      case 'friendsList':
+        return { reply: await this.listFriends(ownerId, language) };
+      case 'friendAdd':
+        return this.addFriend(ownerId, parsed.targetUsername, language);
+      case 'friendRemove':
+        return this.confirmRemoveFriend(ownerId, parsed.targetUsername, language);
+      case 'friendsDuplicates':
+        return {
+          reply: await this.showFriendsDuplicates(ownerId, parsed.countryCode, parsed.sticker, parsed.showNames, language),
+        };
       case 'progress':
         return { reply: await this.showProgress(ownerId, language) };
       case 'page':
@@ -514,12 +562,18 @@ export class StickerBotService {
       return {
         reply: search.mineOnly
           ? 'You have no active marketplace offers.'
+          : search.friendsOnly
+            ? 'No active friend trades found.'
           : 'No active trades found.',
       };
     }
 
     const lines = [
-      search.mineOnly ? 'Your marketplace offers:' : 'Marketplace:',
+      search.mineOnly
+        ? 'Your marketplace offers:'
+        : search.friendsOnly
+          ? 'Friends marketplace:'
+          : 'Marketplace:',
     ];
 
     for (const offer of offers) {
@@ -1159,31 +1213,136 @@ export class StickerBotService {
   private async showDuplicates(
     ownerId: string,
     countryCode: string | undefined,
+    sticker: StickerRef | undefined,
     showNames: boolean,
     language: BotLanguage,
   ): Promise<string> {
-    const duplicates = Object.entries(await this.repository.getStickerQuantities(ownerId))
-      .map(([key, quantity]) => ({
-        sticker: stickerFromKey(key),
-        quantity,
-      }))
-      .filter((entry): entry is { sticker: StickerRef; quantity: number } =>
-        Boolean(entry.sticker && entry.quantity > 1),
-      )
-      .filter((entry) => !countryCode || entry.sticker.countryCode === countryCode);
+    const duplicates = this.getDuplicateEntries(await this.repository.getStickerQuantities(ownerId), countryCode, sticker);
 
     if (duplicates.length === 0) {
+      if (sticker) {
+        return `You do not have duplicates of ${formatSticker(sticker, { includeName: showNames })}.`;
+      }
+
       return countryCode
         ? t(language, 'duplicatesCountryNone', { countryCode })
         : t(language, 'duplicatesNone');
     }
 
-    const formatted = duplicates
-      .sort((left, right) => sortStickers([left.sticker, right.sticker])[0] === left.sticker ? -1 : 1)
+    return t(language, 'duplicatesList', {
+      stickers: this.formatDuplicateEntries(duplicates, showNames),
+    });
+  }
+
+  private async showUserDuplicates(
+    ownerId: string,
+    targetUsername: string,
+    countryCode: string | undefined,
+    sticker: StickerRef | undefined,
+    showNames: boolean,
+    language: BotLanguage,
+  ): Promise<string> {
+    const targetProfile = await this.repository.findProfileByUsername(targetUsername);
+
+    if (!targetProfile) {
+      return t(language, 'compareUnknownUser', { username: targetUsername });
+    }
+
+    if (targetProfile.ownerId === ownerId) {
+      return await this.showDuplicates(ownerId, countryCode, sticker, showNames, language);
+    }
+
+    if (!await this.repository.areFriends(ownerId, targetProfile.ownerId)) {
+      return t(language, 'friendNotFriends', { username: targetProfile.displayName ?? `@${targetUsername}` });
+    }
+
+    if (!await this.repository.hasActiveAlbum(targetProfile.ownerId)) {
+      return t(language, 'compareNoTargetAlbums', { username: targetProfile.displayName ?? `@${targetUsername}` });
+    }
+
+    const duplicates = this.getDuplicateEntries(
+      await this.repository.getStickerQuantities(targetProfile.ownerId),
+      countryCode,
+      sticker,
+    );
+    const displayName = targetProfile.displayName ?? `@${targetUsername}`;
+
+    if (duplicates.length === 0) {
+      return t(language, 'friendDuplicatesNone', { username: displayName });
+    }
+
+    return t(language, 'friendDuplicatesList', {
+      username: displayName,
+      stickers: this.formatDuplicateEntries(duplicates, showNames),
+    });
+  }
+
+  private async showFriendsDuplicates(
+    ownerId: string,
+    countryCode: string | undefined,
+    sticker: StickerRef | undefined,
+    showNames: boolean,
+    language: BotLanguage,
+  ): Promise<string> {
+    const overview = await this.repository.listFriendOverview(ownerId);
+
+    if (overview.friends.length === 0) {
+      return t(language, 'friendsNone');
+    }
+
+    const lines = [t(language, 'friendsDuplicatesTitle')];
+
+    for (const friend of overview.friends) {
+      if (!await this.repository.hasActiveAlbum(friend.ownerId)) {
+        continue;
+      }
+
+      const duplicates = this.getDuplicateEntries(
+        await this.repository.getStickerQuantities(friend.ownerId),
+        countryCode,
+        sticker,
+      );
+
+      if (duplicates.length > 0) {
+        lines.push(`${friend.displayName ?? friend.ownerId}: ${this.formatDuplicateEntries(duplicates, showNames)}`);
+      }
+    }
+
+    if (lines.length === 1) {
+      return t(language, 'friendsDuplicatesNone');
+    }
+
+    return lines.join('\n');
+  }
+
+  private getDuplicateEntries(
+    quantities: Record<string, number>,
+    countryCode: string | undefined,
+    sticker: StickerRef | undefined,
+  ): { sticker: StickerRef; quantity: number }[] {
+    const stickerFilterKey = sticker ? stickerKey(sticker) : undefined;
+
+    return Object.entries(quantities)
+      .map(([key, quantity]) => ({
+        sticker: stickerFromKey(key),
+        quantity,
+        key,
+      }))
+      .filter((entry): entry is { sticker: StickerRef; quantity: number; key: string } =>
+        Boolean(entry.sticker && entry.quantity > 1),
+      )
+      .filter((entry) => !countryCode || entry.sticker.countryCode === countryCode)
+      .filter((entry) => !stickerFilterKey || entry.key === stickerFilterKey)
+      .sort((left, right) => sortStickers([left.sticker, right.sticker])[0] === left.sticker ? -1 : 1);
+  }
+
+  private formatDuplicateEntries(
+    duplicates: { sticker: StickerRef; quantity: number }[],
+    showNames: boolean,
+  ): string {
+    return duplicates
       .map((entry) => `${formatSticker(entry.sticker, { includeName: showNames })} x${entry.quantity}`)
       .join(', ');
-
-    return t(language, 'duplicatesList', { stickers: formatted });
   }
 
   private async showProgress(ownerId: string, language: BotLanguage): Promise<string> {
@@ -1256,6 +1415,160 @@ export class StickerBotService {
           },
         },
       ],
+    };
+  }
+
+  private async listFriends(ownerId: string, language: BotLanguage): Promise<string> {
+    const overview = await this.repository.listFriendOverview(ownerId);
+    const lines = [t(language, 'friendsTitle')];
+
+    if (overview.friends.length === 0) {
+      lines.push(t(language, 'friendsNone'));
+    } else {
+      lines.push(...overview.friends.map((friend) => `- ${friend.displayName ?? friend.ownerId}`));
+    }
+
+    if (overview.incomingRequests.length > 0) {
+      lines.push('', t(language, 'friendsIncomingTitle'));
+      lines.push(...overview.incomingRequests.map((request) => `- @${request.fromUsername ?? request.fromOwnerId}`));
+    }
+
+    if (overview.outgoingRequests.length > 0) {
+      lines.push('', t(language, 'friendsOutgoingTitle'));
+      lines.push(...overview.outgoingRequests.map((request) => `- @${request.targetUsername}`));
+    }
+
+    return lines.join('\n');
+  }
+
+  private async addFriend(
+    ownerId: string,
+    targetUsername: string,
+    language: BotLanguage,
+  ): Promise<BotActionResult> {
+    const result = await this.repository.createFriendRequest(ownerId, targetUsername);
+
+    if (result.error || !result.request) {
+      return {
+        reply: this.translateFriendRepositoryError(result.error, language)
+          ?? t(language, 'friendRequestFailed'),
+      };
+    }
+
+    const fromProfile = await this.repository.getProfile(ownerId);
+    const inviterName = fromProfile?.displayName ?? ownerId;
+    const recipientLanguage = await this.getLanguage(result.request.toOwnerId) ?? language;
+
+    return {
+      reply: t(language, 'friendRequestSent', { username: `@${targetUsername}` }),
+      outboundMessages: [
+        {
+          chatId: result.request.toOwnerId,
+          text: t(recipientLanguage, 'friendInvite', { inviterName }),
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                {
+                  text: t(recipientLanguage, 'buttonYes'),
+                  callback_data: `friend:accept:${result.request.id}`,
+                },
+                {
+                  text: t(recipientLanguage, 'buttonNo'),
+                  callback_data: `friend:decline:${result.request.id}`,
+                },
+              ],
+            ],
+          },
+        },
+      ],
+    };
+  }
+
+  private async handleFriendResponse(
+    action: 'accept' | 'decline',
+    requestId: string,
+    ownerId: string,
+  ): Promise<BotActionResult> {
+    const language = await this.getLanguage(ownerId) ?? 'en';
+    const result = action === 'accept'
+      ? await this.repository.acceptFriendRequest(requestId, ownerId)
+      : await this.repository.declineFriendRequest(requestId, ownerId);
+
+    if (result.error || !result.request) {
+      return {
+        reply: this.translateFriendRepositoryError(result.error, language)
+          ?? t(language, 'friendRequestFailed'),
+      };
+    }
+
+    const responderName = (await this.repository.getProfile(ownerId))?.displayName ?? ownerId;
+    const outboundMessages = result.fromProfile
+      ? [
+        {
+          chatId: result.request.fromOwnerId,
+          text: action === 'accept'
+            ? t(result.fromProfile.language ?? language, 'friendAcceptedNotify', { responderName })
+            : t(result.fromProfile.language ?? language, 'friendDeclinedNotify', { responderName }),
+        },
+      ]
+      : undefined;
+
+    return {
+      reply: action === 'accept'
+        ? t(language, 'friendAccepted')
+        : t(language, 'friendDeclined'),
+      outboundMessages,
+    };
+  }
+
+  private async confirmRemoveFriend(
+    ownerId: string,
+    targetUsername: string,
+    language: BotLanguage,
+  ): Promise<BotActionResult> {
+    const targetProfile = await this.repository.findProfileByUsername(targetUsername);
+
+    if (!targetProfile) {
+      return { reply: t(language, 'compareUnknownUser', { username: targetUsername }) };
+    }
+
+    if (!await this.repository.areFriends(ownerId, targetProfile.ownerId)) {
+      return { reply: t(language, 'friendNotFriends', { username: targetProfile.displayName ?? `@${targetUsername}` }) };
+    }
+
+    return {
+      reply: t(language, 'friendRemoveConfirm', { username: targetProfile.displayName ?? `@${targetUsername}` }),
+      replyMarkup: {
+        inline_keyboard: [[
+          {
+            text: t(language, 'buttonYes'),
+            callback_data: `friend:remove:${targetUsername}:confirm`,
+          },
+          {
+            text: t(language, 'buttonNo'),
+            callback_data: `friend:remove:${targetUsername}:cancel`,
+          },
+        ]],
+      },
+    };
+  }
+
+  private async removeFriendConfirmed(
+    ownerId: string,
+    targetUsername: string,
+    language: BotLanguage,
+  ): Promise<BotActionResult> {
+    const result = await this.repository.removeFriend(ownerId, targetUsername);
+
+    if (result.error || !result.friend) {
+      return {
+        reply: this.translateFriendRepositoryError(result.error, language)
+          ?? t(language, 'friendRemoveFailed'),
+      };
+    }
+
+    return {
+      reply: t(language, 'friendRemoved', { username: result.friend.displayName ?? `@${targetUsername}` }),
     };
   }
 
@@ -1698,7 +2011,29 @@ export class StickerBotService {
       return { reply: this.translateAlbumLookupError(match.error, language) };
     }
 
-    const result = await this.repository.deleteAlbum(ownerId, match.album.id);
+    return {
+      reply: t(language, 'albumDeleteConfirm', { albumName: match.album.name }),
+      replyMarkup: {
+        inline_keyboard: [[
+          {
+            text: t(language, 'buttonYes'),
+            callback_data: `album:delete:${match.album.id}:confirm`,
+          },
+          {
+            text: t(language, 'buttonNo'),
+            callback_data: `album:delete:${match.album.id}:cancel`,
+          },
+        ]],
+      },
+    };
+  }
+
+  private async deleteAlbumConfirmed(
+    ownerId: string,
+    albumId: string,
+    language: BotLanguage,
+  ): Promise<BotActionResult> {
+    const result = await this.repository.deleteAlbum(ownerId, albumId);
 
     if (result.error || !result.album) {
       return {
@@ -1811,6 +2146,10 @@ export class StickerBotService {
   }
 
   private requiresActiveAlbum(parsed: ParsedBotMessage): boolean {
+    if (parsed.intent === 'duplicates' && parsed.targetUsername) {
+      return false;
+    }
+
     return [
       'querySticker',
       'queryCountry',
@@ -1876,6 +2215,59 @@ export class StickerBotService {
 
     if (error === 'No hay album activo.') {
       return t(language, 'commandRequiresActiveAlbum');
+    }
+
+    return error;
+  }
+
+  private translateFriendRepositoryError(
+    error: string | undefined,
+    language: BotLanguage,
+  ): string | undefined {
+    if (!error) {
+      return undefined;
+    }
+
+    const unknownUserMatch = /^No conozco a @(.+)\./.exec(error);
+    const alreadyFriendMatch = /^Ya eres amigo de @(.+)\./.exec(error);
+    const incomingPendingMatch = /^@(.+) ya te envio una solicitud\./.exec(error);
+    const notFriendsMatch = /^No eres amigo de @(.+)\./.exec(error);
+
+    if (unknownUserMatch) {
+      return t(language, 'compareUnknownUser', { username: unknownUserMatch[1] });
+    }
+
+    if (notFriendsMatch) {
+      return t(language, 'friendNotFriends', { username: `@${notFriendsMatch[1]}` });
+    }
+
+    if (error === 'No puedes agregarte como amigo.') {
+      if (language === 'es') return 'No puedes agregarte como amigo.';
+      if (language === 'zh') return 'Choose another user to add as a friend.';
+      return 'Choose another user to add as a friend.';
+    }
+
+    if (alreadyFriendMatch) {
+      if (language === 'es') return `Ya eres amigo de @${alreadyFriendMatch[1]}.`;
+      if (language === 'zh') return `You are already friends with @${alreadyFriendMatch[1]}.`;
+      return `You are already friends with @${alreadyFriendMatch[1]}.`;
+    }
+
+    if (incomingPendingMatch) {
+      if (language === 'es') {
+        return `@${incomingPendingMatch[1]} ya te envio una solicitud. Aceptala desde el mensaje que recibiste.`;
+      }
+
+      return `@${incomingPendingMatch[1]} already sent you a friend request. Accept it from the message you received.`;
+    }
+
+    if (error === 'Solicitud de amistad no encontrada.') {
+      if (language === 'es') return 'Solicitud de amistad no encontrada.';
+      return 'Friend request not found.';
+    }
+
+    if (error === 'Esta solicitud ya fue respondida.') {
+      return t(language, 'shareAlreadyAnswered');
     }
 
     return error;

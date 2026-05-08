@@ -37,7 +37,7 @@ const USA2: StickerRef = { countryCode: 'USA', number: 2 };
 
 const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
-const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
+const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, collector_friends, friend_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
 
 const createRepositoryHarness = async () => {
   await testPool.query(TRUNCATE_SQL);
@@ -246,6 +246,47 @@ test('parser detects share and compare commands', () => {
   assert.deepEqual(parseStickerMessage('compare Atlantis @Friend_123'), {
     intent: 'unknown',
     reason: 'Unknown compare country.',
+    showNames: false,
+  });
+});
+
+test('parser detects friend commands and friend duplicate scopes', () => {
+  assert.deepEqual(parseStickerMessage('dupes @Friend_123 arg5'), {
+    intent: 'duplicates',
+    targetUsername: 'friend_123',
+    sticker: ARG5,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends'), {
+    intent: 'friendsList',
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends add @Friend_123'), {
+    intent: 'friendAdd',
+    targetUsername: 'friend_123',
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends delete @Friend_123'), {
+    intent: 'friendRemove',
+    targetUsername: 'friend_123',
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends -duplicates arg5'), {
+    intent: 'friendsDuplicates',
+    sticker: ARG5,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends -duplicates arg'), {
+    intent: 'friendsDuplicates',
+    countryCode: 'ARG',
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends trade -give arg4'), {
+    intent: 'marketplaceSearch',
+    search: {
+      giveSticker: ARG4,
+      friendsOnly: true,
+    },
     showNames: false,
   });
 });

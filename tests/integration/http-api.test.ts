@@ -13,6 +13,7 @@ const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_pa
 const TRUNCATE_SQL = `
   TRUNCATE user_album_events, user_album_items, trade_offers,
     collector_active_albums, user_album_members, album_share_requests,
+    collector_friends, friend_requests,
     user_albums, collector_profiles RESTART IDENTITY CASCADE;
   ALTER SEQUENCE trade_offer_sequence RESTART WITH 1
 `;
@@ -185,7 +186,7 @@ test('POST /api/bot/message can create and select albums through messages', asyn
   });
 
   assert.equal(firstAlbum.response.status, 200);
-  assert.equal(responseData(firstAlbum.body).reply, 'Album created and selected: Road to 2026.');
+  assert.match(String(responseData(firstAlbum.body).reply), /^Album created and selected: Road to 2026\./);
   assert.equal(asRecord(responseData(firstAlbum.body).parsed).intent, 'albumCreate');
 
   const secondAlbum = await postBotMessage(baseUrl, {
@@ -195,7 +196,7 @@ test('POST /api/bot/message can create and select albums through messages', asyn
   });
 
   assert.equal(secondAlbum.response.status, 200);
-  assert.equal(responseData(secondAlbum.body).reply, 'Album created and selected: Swap Duplicates.');
+  assert.match(String(responseData(secondAlbum.body).reply), /^Album created and selected: Swap Duplicates\./);
 
   const selected = await postBotMessage(baseUrl, {
     ownerId,

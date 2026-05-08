@@ -25,7 +25,11 @@ export type ParsedBotMessage =
   | { intent: 'tradeCancel'; tradeId: string; showNames: boolean }
   | { intent: 'marketplaceSearch'; search: MarketplaceSearch; showNames: boolean }
   | { intent: 'missing'; countryCode?: string; showNames: boolean }
-  | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
+  | { intent: 'duplicates'; countryCode?: string; sticker?: StickerRef; targetUsername?: string; showNames: boolean }
+  | { intent: 'friendsList'; showNames: boolean }
+  | { intent: 'friendAdd'; targetUsername: string; showNames: boolean }
+  | { intent: 'friendRemove'; targetUsername: string; showNames: boolean }
+  | { intent: 'friendsDuplicates'; countryCode?: string; sticker?: StickerRef; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
   | { intent: 'page'; country?: AlbumPageEntry; countryInput?: string; showNames: boolean }
   | { intent: 'share'; targetUsername: string; showNames: boolean }
@@ -57,7 +61,7 @@ type LeadingIntent =
 const ADD_ALIASES = new Set(['add']);
 const REMOVE_ALIASES = new Set(['remove', 'rm']);
 const MISSING_ALIASES = new Set(['missing']);
-const DUPLICATES_ALIASES = new Set(['duplicates', 'dups']);
+const DUPLICATES_ALIASES = new Set(['duplicates', 'dups', 'dupes']);
 const PROGRESS_ALIASES = new Set(['progress', 'stats']);
 const PAGE_ALIASES = new Set(['page', 'pagina']);
 const START_ALIASES = new Set(['start', 'menu', 'album', 'albums']);
@@ -66,6 +70,7 @@ const UNDO_ALIASES = new Set(['undo']);
 const HELP_ALIASES = new Set(['help']);
 const MARKETPLACE_ALIASES = new Set(['marketplace']);
 const TRADES_ALIASES = new Set(['trades']);
+const FRIENDS_ALIASES = new Set(['friends', 'amigos']);
 
 const ALBUM_CREATE_ALIASES = new Set(['new', 'create']);
 const ALBUM_SELECT_ALIASES = new Set(['use', 'select', 'switch']);
@@ -273,6 +278,30 @@ const parseStickerRefList = (
     : null;
 };
 
+const parseDuplicateScope = (
+  input: string,
+): { countryCode?: string; sticker?: StickerRef } | null => {
+  const normalizedInput = input.trim();
+
+  if (!normalizedInput) {
+    return {};
+  }
+
+  const sticker = parseStickerRef(normalizedInput);
+
+  if (sticker) {
+    return { sticker };
+  }
+
+  const country = parseCountry(normalizedInput);
+
+  if (country) {
+    return { countryCode: country.code };
+  }
+
+  return null;
+};
+
 const parseTradeOperandMatches = (
   tokens: string[],
   startIndex: number,
@@ -403,57 +432,123 @@ const parseTradeCommand = (
 
   if (MARKETPLACE_ALIASES.has(firstToken ?? '')) {
     const remainder = stripLeadingWords(text, 1);
+    return parseMarketplaceSearch(remainder, showNames);
+  }
 
-    if (!remainder) {
-      return {
-        intent: 'marketplaceSearch',
-        search: {},
-        showNames,
-      };
-    }
+  return null;
+};
 
-    if (/^-mine$/i.test(remainder.trim())) {
-      return {
-        intent: 'marketplaceSearch',
-        search: { mineOnly: true },
-        showNames,
-      };
-    }
+const parseMarketplaceSearch = (
+  remainder: string,
+  showNames: boolean,
+  options: { friendsOnly?: boolean } = {},
+): ParsedBotMessage => {
+  const normalizedRemainder = remainder.trim();
+  const friendshipScope = options.friendsOnly ? { friendsOnly: true } : {};
 
-    const usernameMatch = /^@([a-z0-9_]{5,32})$/i.exec(remainder.trim());
-
-    if (usernameMatch) {
-      return {
-        intent: 'marketplaceSearch',
-        search: { ownerUsername: usernameMatch[1].toLowerCase() },
-        showNames,
-      };
-    }
-
-    const directionalStickerMatch = /^-(give|need)\s+(.+)$/i.exec(remainder.trim());
-
-    if (directionalStickerMatch) {
-      const sticker = parseStickerRef(directionalStickerMatch[2]);
-
-      if (sticker) {
-        return {
-          intent: 'marketplaceSearch',
-          search: directionalStickerMatch[1].toLowerCase() === 'give'
-            ? { giveSticker: sticker }
-            : { needSticker: sticker },
-          showNames,
-        };
-      }
-    }
-
+  if (!normalizedRemainder) {
     return {
-      intent: 'unknown',
-      reason: 'Marketplace filter must be @username, -mine, -give arg4, or -need arg4.',
+      intent: 'marketplaceSearch',
+      search: friendshipScope,
       showNames,
     };
   }
 
-  return null;
+  if (/^-mine$/i.test(normalizedRemainder)) {
+    return {
+      intent: 'marketplaceSearch',
+      search: { mineOnly: true, ...friendshipScope },
+      showNames,
+    };
+  }
+
+  const usernameMatch = /^@([a-z0-9_]{5,32})$/i.exec(normalizedRemainder);
+
+  if (usernameMatch) {
+    return {
+      intent: 'marketplaceSearch',
+      search: {
+        ownerUsername: usernameMatch[1].toLowerCase(),
+        ...friendshipScope,
+      },
+      showNames,
+    };
+  }
+
+  const directionalStickerMatch = /^-(give|need)\s+(.+)$/i.exec(normalizedRemainder);
+
+  if (directionalStickerMatch) {
+    const sticker = parseStickerRef(directionalStickerMatch[2]);
+
+    if (sticker) {
+      return {
+        intent: 'marketplaceSearch',
+        search: {
+          ...(directionalStickerMatch[1].toLowerCase() === 'give'
+            ? { giveSticker: sticker }
+            : { needSticker: sticker }),
+          ...friendshipScope,
+        },
+        showNames,
+      };
+    }
+  }
+
+  return {
+    intent: 'unknown',
+    reason: 'Marketplace filter must be @username, -mine, -give arg4, or -need arg4.',
+    showNames,
+  };
+};
+
+const parseFriendsCommand = (
+  text: string,
+  showNames: boolean,
+): ParsedBotMessage | null => {
+  const normalizedText = normalizeForParsing(text);
+  const tokens = normalizedText.split(/\s+/).filter(Boolean);
+  const firstToken = tokens[0]?.replace(/^\/+/, '');
+  const secondToken = tokens[1];
+
+  if (!FRIENDS_ALIASES.has(firstToken ?? '')) {
+    return null;
+  }
+
+  if (!secondToken) {
+    return { intent: 'friendsList', showNames };
+  }
+
+  const remainder = stripLeadingWords(text, 2);
+
+  if (secondToken === 'add') {
+    const usernameMatch = /^@([a-z0-9_]{5,32})$/i.exec(remainder);
+
+    return usernameMatch
+      ? { intent: 'friendAdd', targetUsername: usernameMatch[1].toLowerCase(), showNames }
+      : { intent: 'unknown', reason: 'Friend username required. Example: friends add @username.', showNames };
+  }
+
+  if (secondToken === 'rm' || secondToken === 'remove' || secondToken === 'delete') {
+    const usernameMatch = /^@([a-z0-9_]{5,32})$/i.exec(remainder);
+
+    return usernameMatch
+      ? { intent: 'friendRemove', targetUsername: usernameMatch[1].toLowerCase(), showNames }
+      : { intent: 'unknown', reason: 'Friend username required. Example: friends rm @username.', showNames };
+  }
+
+  if (secondToken === '-duplicates' || secondToken === 'duplicates' || secondToken === 'dups' || secondToken === 'dupes') {
+    const scope = parseDuplicateScope(remainder);
+
+    return scope
+      ? { intent: 'friendsDuplicates', ...scope, showNames }
+      : { intent: 'unknown', reason: 'Friend duplicates filter must be a country or sticker, for example: friends -duplicates arg5.', showNames };
+  }
+
+  if (secondToken === 'trade' || secondToken === 'marketplace') {
+    return parseMarketplaceSearch(remainder, showNames, { friendsOnly: true });
+  }
+
+  return { intent: 'unknown', reason: 'Friend command not found.', showNames };
 };
 
 const stripLeadingWords = (input: string, count: number): string =>
@@ -582,6 +677,25 @@ const parseAlbumCommand = (
 export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
   const originalText = rawText.trim();
   const { text, showNames } = stripNameFlag(originalText);
+  const duplicatesUserMatch = /^\/?(?:duplicates|dups|dupes)\s+@([a-z0-9_]{5,32})(?:\s+(.+))?$/i.exec(text);
+
+  if (duplicatesUserMatch) {
+    const scope = parseDuplicateScope(duplicatesUserMatch[2] ?? '');
+
+    return scope
+      ? {
+        intent: 'duplicates',
+        targetUsername: duplicatesUserMatch[1].toLowerCase(),
+        ...scope,
+        showNames,
+      }
+      : {
+        intent: 'unknown',
+        reason: 'Duplicates filter must be a country or sticker, for example: duplicates @username arg5.',
+        showNames,
+      };
+  }
+
   const shareMatch = /^\/?share\s+@([a-z0-9_]{5,32})$/i.exec(text);
 
   if (shareMatch) {
@@ -612,6 +726,12 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
       countryCode: country?.code,
       showNames,
     };
+  }
+
+  const friendsCommand = parseFriendsCommand(text, showNames);
+
+  if (friendsCommand) {
+    return friendsCommand;
   }
 
   const albumCommand = parseAlbumCommand(text, showNames);
@@ -679,7 +799,7 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
     return { intent, sticker, showNames };
   }
 
-  if (intent === 'missing' || intent === 'duplicates') {
+  if (intent === 'missing') {
     const country = parseCountry(remainder);
 
     return {
@@ -687,6 +807,14 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
       countryCode: country?.code,
       showNames,
     };
+  }
+
+  if (intent === 'duplicates') {
+    const scope = parseDuplicateScope(remainder);
+
+    return scope
+      ? { intent, ...scope, showNames }
+      : { intent, countryCode: undefined, showNames };
   }
 
   const sticker = parseStickerRef(remainder);

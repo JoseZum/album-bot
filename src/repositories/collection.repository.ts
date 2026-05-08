@@ -54,10 +54,36 @@ export type ShareRequest = {
   fromOwnerId: string;
   toOwnerId: string;
   targetUsername: string;
+  fromUsername?: string;
+  toUsername?: string;
   collectionId: string;
   status: ShareRequestStatus;
   createdAt: string;
   respondedAt?: string;
+};
+
+export type FriendRequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
+
+export type FriendRequest = {
+  id: string;
+  fromOwnerId: string;
+  toOwnerId: string;
+  targetUsername: string;
+  fromUsername?: string;
+  toUsername?: string;
+  status: FriendRequestStatus;
+  createdAt: string;
+  respondedAt?: string;
+};
+
+export type FriendSummary = StoredProfile & {
+  friendsSince: string;
+};
+
+export type FriendOverview = {
+  friends: FriendSummary[];
+  incomingRequests: FriendRequest[];
+  outgoingRequests: FriendRequest[];
 };
 
 export type CollectionSummary = {
@@ -118,8 +144,24 @@ function rowToShareRequest(row: Record<string, unknown>): ShareRequest {
     fromOwnerId: row.from_telegram_chat_id as string,
     toOwnerId: row.to_telegram_chat_id as string,
     targetUsername: (row.to_telegram_username as string | null) ?? (row.to_telegram_chat_id as string),
+    fromUsername: (row.from_telegram_username as string | null) ?? undefined,
+    toUsername: (row.to_telegram_username as string | null) ?? undefined,
     collectionId: row.user_album_id as string,
     status: row.status as ShareRequestStatus,
+    createdAt: (row.created_at as Date).toISOString(),
+    respondedAt: row.answered_at ? (row.answered_at as Date).toISOString() : undefined,
+  };
+}
+
+function rowToFriendRequest(row: Record<string, unknown>): FriendRequest {
+  return {
+    id: row.id as string,
+    fromOwnerId: row.from_telegram_chat_id as string,
+    toOwnerId: row.to_telegram_chat_id as string,
+    targetUsername: (row.to_telegram_username as string | null) ?? (row.to_telegram_chat_id as string),
+    fromUsername: (row.from_telegram_username as string | null) ?? undefined,
+    toUsername: (row.to_telegram_username as string | null) ?? undefined,
+    status: row.status as FriendRequestStatus,
     createdAt: (row.created_at as Date).toISOString(),
     respondedAt: row.answered_at ? (row.answered_at as Date).toISOString() : undefined,
   };
@@ -855,6 +897,243 @@ export class CollectionRepository {
     };
   }
 
+  // ---- Friends ----
+
+  async listFriendOverview(ownerId: string): Promise<FriendOverview> {
+    const normalizedOwnerId = normalizeOwnerId(ownerId);
+    const collectorUuid = await this.getCollectorUUID(normalizedOwnerId);
+
+    if (!collectorUuid) {
+      return { friends: [], incomingRequests: [], outgoingRequests: [] };
+    }
+
+    const friendsResult = await this.db.query<Record<string, unknown>>(
+      `SELECT cp.*, cf.created_at AS friends_since
+       FROM collector_friends cf
+       JOIN collector_profiles cp ON cp.id = cf.friend_collector_id
+       WHERE cf.collector_id = $1
+       ORDER BY cp.display_name`,
+      [collectorUuid],
+    );
+
+    const pendingResult = await this.db.query<Record<string, unknown>>(
+      `SELECT fr.*,
+              from_cp.telegram_chat_id AS from_telegram_chat_id,
+              from_cp.telegram_username AS from_telegram_username,
+              to_cp.telegram_chat_id AS to_telegram_chat_id,
+              to_cp.telegram_username AS to_telegram_username
+       FROM friend_requests fr
+       JOIN collector_profiles from_cp ON from_cp.id = fr.from_collector_id
+       JOIN collector_profiles to_cp ON to_cp.id = fr.to_collector_id
+       WHERE fr.status = 'pending'
+         AND (fr.from_collector_id = $1 OR fr.to_collector_id = $1)
+       ORDER BY fr.created_at DESC`,
+      [collectorUuid],
+    );
+
+    return {
+      friends: friendsResult.rows.map((row) => ({
+        ...rowToStoredProfile(row),
+        friendsSince: (row.friends_since as Date).toISOString(),
+      })),
+      incomingRequests: pendingResult.rows
+        .filter((row) => row.to_collector_id === collectorUuid)
+        .map(rowToFriendRequest),
+      outgoingRequests: pendingResult.rows
+        .filter((row) => row.from_collector_id === collectorUuid)
+        .map(rowToFriendRequest),
+    };
+  }
+
+  async listFriendOwnerIds(ownerId: string): Promise<string[]> {
+    const collectorUuid = await this.getCollectorUUID(normalizeOwnerId(ownerId));
+
+    if (!collectorUuid) {
+      return [];
+    }
+
+    const result = await this.db.query<{ telegram_chat_id: string }>(
+      `SELECT cp.telegram_chat_id
+       FROM collector_friends cf
+       JOIN collector_profiles cp ON cp.id = cf.friend_collector_id
+       WHERE cf.collector_id = $1`,
+      [collectorUuid],
+    );
+
+    return result.rows.map((row) => row.telegram_chat_id);
+  }
+
+  async areFriends(leftOwnerId: string, rightOwnerId: string): Promise<boolean> {
+    const leftUuid = await this.getCollectorUUID(normalizeOwnerId(leftOwnerId));
+    const rightUuid = await this.getCollectorUUID(normalizeOwnerId(rightOwnerId));
+
+    if (!leftUuid || !rightUuid) {
+      return false;
+    }
+
+    const result = await this.db.query<{ count: string }>(
+      `SELECT COUNT(*)::int AS count
+       FROM collector_friends
+       WHERE collector_id = $1 AND friend_collector_id = $2`,
+      [leftUuid, rightUuid],
+    );
+
+    return Number(result.rows[0]?.count ?? 0) > 0;
+  }
+
+  async createFriendRequest(
+    fromOwnerId: string,
+    targetUsername: string,
+  ): Promise<{ request?: FriendRequest; targetProfile?: StoredProfile; error?: string }> {
+    const normalizedFromOwnerId = normalizeOwnerId(fromOwnerId);
+    const normalizedTargetUsername = targetUsername.replace(/^@/, '').toLowerCase();
+    const targetProfile = await this.findProfileByUsername(normalizedTargetUsername);
+
+    if (!targetProfile) {
+      return { error: `No conozco a @${normalizedTargetUsername}. Esa persona debe abrir el bot y mandar /start primero.` };
+    }
+
+    if (targetProfile.ownerId === normalizedFromOwnerId) {
+      return { error: 'No puedes agregarte como amigo.' };
+    }
+
+    const fromUuid = await this.getOrCreateCollectorUUID(normalizedFromOwnerId);
+    const toUuid = await this.getCollectorUUID(targetProfile.ownerId);
+
+    if (!toUuid) {
+      return { error: `No conozco a @${normalizedTargetUsername}. Esa persona debe abrir el bot y mandar /start primero.` };
+    }
+
+    if (await this.areFriends(normalizedFromOwnerId, targetProfile.ownerId)) {
+      return { error: `Ya eres amigo de @${normalizedTargetUsername}.` };
+    }
+
+    const existingPending = await this.db.query<Record<string, unknown>>(
+      `SELECT fr.*,
+              from_cp.telegram_chat_id AS from_telegram_chat_id,
+              from_cp.telegram_username AS from_telegram_username,
+              to_cp.telegram_chat_id AS to_telegram_chat_id,
+              to_cp.telegram_username AS to_telegram_username
+       FROM friend_requests fr
+       JOIN collector_profiles from_cp ON from_cp.id = fr.from_collector_id
+       JOIN collector_profiles to_cp ON to_cp.id = fr.to_collector_id
+       WHERE fr.status = 'pending'
+         AND (
+           (fr.from_collector_id = $1 AND fr.to_collector_id = $2)
+           OR (fr.from_collector_id = $2 AND fr.to_collector_id = $1)
+         )
+       LIMIT 1`,
+      [fromUuid, toUuid],
+    );
+
+    if (existingPending.rows[0]) {
+      const request = rowToFriendRequest(existingPending.rows[0]);
+
+      if (request.fromOwnerId === normalizedFromOwnerId) {
+        return { request, targetProfile };
+      }
+
+      return { error: `@${normalizedTargetUsername} ya te envio una solicitud. Aceptala desde el mensaje que recibiste.` };
+    }
+
+    const insertResult = await this.db.query<Record<string, unknown>>(
+      `INSERT INTO friend_requests (from_collector_id, to_collector_id, status)
+       VALUES ($1, $2, 'pending')
+       RETURNING *`,
+      [fromUuid, toUuid],
+    );
+
+    const requestResult = await this.getFriendRequestRow(insertResult.rows[0].id as string);
+
+    return {
+      request: requestResult ? rowToFriendRequest(requestResult) : undefined,
+      targetProfile,
+    };
+  }
+
+  async acceptFriendRequest(
+    requestId: string,
+    responderOwnerId: string,
+  ): Promise<{ request?: FriendRequest; fromProfile?: StoredProfile; error?: string }> {
+    const result = await this.answerFriendRequest(requestId, responderOwnerId, 'accepted');
+
+    if (result.error || !result.row) {
+      return { error: result.error };
+    }
+
+    await this.db.query(
+      `INSERT INTO collector_friends (collector_id, friend_collector_id)
+       VALUES ($1, $2), ($2, $1)
+       ON CONFLICT (collector_id, friend_collector_id) DO NOTHING`,
+      [result.row.from_collector_id, result.row.to_collector_id],
+    );
+
+    return {
+      request: rowToFriendRequest(result.row),
+      fromProfile: await this.getProfile(result.row.from_telegram_chat_id as string),
+    };
+  }
+
+  async declineFriendRequest(
+    requestId: string,
+    responderOwnerId: string,
+  ): Promise<{ request?: FriendRequest; fromProfile?: StoredProfile; error?: string }> {
+    const result = await this.answerFriendRequest(requestId, responderOwnerId, 'declined');
+
+    if (result.error || !result.row) {
+      return { error: result.error };
+    }
+
+    return {
+      request: rowToFriendRequest(result.row),
+      fromProfile: await this.getProfile(result.row.from_telegram_chat_id as string),
+    };
+  }
+
+  async removeFriend(
+    ownerId: string,
+    targetUsername: string,
+  ): Promise<{ friend?: StoredProfile; error?: string }> {
+    const normalizedOwnerId = normalizeOwnerId(ownerId);
+    const normalizedTargetUsername = targetUsername.replace(/^@/, '').toLowerCase();
+    const targetProfile = await this.findProfileByUsername(normalizedTargetUsername);
+
+    if (!targetProfile) {
+      return { error: `No conozco a @${normalizedTargetUsername}. Esa persona debe abrir el bot y mandar /start primero.` };
+    }
+
+    const ownerUuid = await this.getCollectorUUID(normalizedOwnerId);
+    const targetUuid = await this.getCollectorUUID(targetProfile.ownerId);
+
+    if (!ownerUuid || !targetUuid) {
+      return { error: `No eres amigo de @${normalizedTargetUsername}.` };
+    }
+
+    const deleteResult = await this.db.query(
+      `DELETE FROM collector_friends
+       WHERE (collector_id = $1 AND friend_collector_id = $2)
+          OR (collector_id = $2 AND friend_collector_id = $1)`,
+      [ownerUuid, targetUuid],
+    );
+
+    if ((deleteResult.rowCount ?? 0) === 0) {
+      return { error: `No eres amigo de @${normalizedTargetUsername}.` };
+    }
+
+    await this.db.query(
+      `UPDATE friend_requests
+       SET status = 'cancelled', answered_at = now()
+       WHERE status = 'pending'
+         AND (
+           (from_collector_id = $1 AND to_collector_id = $2)
+           OR (from_collector_id = $2 AND to_collector_id = $1)
+         )`,
+      [ownerUuid, targetUuid],
+    );
+
+    return { friend: targetProfile };
+  }
+
   // ---- Share requests ----
 
   async createShareRequest(
@@ -1267,6 +1546,9 @@ export class CollectionRepository {
     const viewerActiveAlbumId = normalizedViewerOwnerId
       ? await this.getActiveAlbumId(normalizedViewerOwnerId)
       : undefined;
+    const friendOwnerIds = search.friendsOnly && normalizedViewerOwnerId
+      ? new Set(await this.listFriendOwnerIds(normalizedViewerOwnerId))
+      : undefined;
 
     const result = await this.db.query<Record<string, unknown>>(
       `SELECT to_.*,
@@ -1291,6 +1573,8 @@ export class CollectionRepository {
         if (offer.ownerId === normalizedViewerOwnerId) continue;
         if (viewerActiveAlbumId && offer.collectionId === viewerActiveAlbumId) continue;
       }
+
+      if (friendOwnerIds && !friendOwnerIds.has(offer.ownerId)) continue;
 
       // Filter by owner username
       if (search.ownerUsername) {
@@ -1763,6 +2047,56 @@ export class CollectionRepository {
     );
 
     return result.rows[0]?.code ?? null;
+  }
+
+  private async getFriendRequestRow(requestId: string): Promise<Record<string, unknown> | null> {
+    if (!isUuid(requestId)) {
+      return null;
+    }
+
+    const result = await this.db.query<Record<string, unknown>>(
+      `SELECT fr.*,
+              from_cp.telegram_chat_id AS from_telegram_chat_id,
+              from_cp.telegram_username AS from_telegram_username,
+              to_cp.telegram_chat_id AS to_telegram_chat_id,
+              to_cp.telegram_username AS to_telegram_username
+       FROM friend_requests fr
+       JOIN collector_profiles from_cp ON from_cp.id = fr.from_collector_id
+       JOIN collector_profiles to_cp ON to_cp.id = fr.to_collector_id
+       WHERE fr.id = $1`,
+      [requestId],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  private async answerFriendRequest(
+    requestId: string,
+    responderOwnerId: string,
+    status: 'accepted' | 'declined',
+  ): Promise<{ row?: Record<string, unknown>; error?: string }> {
+    const row = await this.getFriendRequestRow(requestId);
+
+    if (!row) {
+      return { error: 'Solicitud de amistad no encontrada.' };
+    }
+
+    if ((row.to_telegram_chat_id as string) !== normalizeOwnerId(responderOwnerId)) {
+      return { error: 'Solicitud de amistad no encontrada.' };
+    }
+
+    if ((row.status as string) !== 'pending') {
+      return { error: 'Esta solicitud ya fue respondida.' };
+    }
+
+    await this.db.query(
+      `UPDATE friend_requests SET status = $1, answered_at = now() WHERE id = $2`,
+      [status, requestId],
+    );
+
+    const updated = await this.getFriendRequestRow(requestId);
+
+    return updated ? { row: updated } : { error: 'Solicitud de amistad no encontrada.' };
   }
 
   private async getStickerQuantitiesForAlbum(albumId: string): Promise<Record<string, number>> {

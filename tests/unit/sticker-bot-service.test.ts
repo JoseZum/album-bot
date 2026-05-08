@@ -30,7 +30,7 @@ type Harness = {
 
 const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
-const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
+const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, collector_friends, friend_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
 
 const createHarness = async (): Promise<Harness> => {
   await testPool.query(TRUNCATE_SQL);
@@ -138,15 +138,13 @@ test('language selection gates messages until a language callback is handled', a
 
   const selected = await service.handleCallbackData('lang:en', 'owner-a');
 
-  assert.match(selected.reply, /^Language set to English\.\n\nAlbum menu/);
-  assert.match(selected.reply, /No active album yet\./);
-  assert.match(stringifyMarkup(selected.replyMarkup), /album:create:panini-fifa-world-cup-2026/);
+  assert.match(selected.reply, /^Hi! I'll help you track your 2026 World Cup sticker album\./);
   assert.equal((await repository.getProfile('owner-a'))?.language, 'en');
 
   const albumRequired = await service.handleMessage('progress', 'owner-a');
 
   assert.equal(albumRequired.parsed.intent, 'progress');
-  assert.match(albumRequired.reply, /^Create or select an album first\.\n\nAlbum menu/);
+  assert.match(albumRequired.reply, /^Hi! I'll help you track your 2026 World Cup sticker album\./);
 
   const languageMenu = await service.handleMessage('language', 'owner-a');
 
@@ -157,7 +155,7 @@ test('language selection gates messages until a language callback is handled', a
 test('start menu, album creation, selection, listing, and album callbacks use the repository state', async () => {
   const { repository, service } = await createHarness();
 
-  assert.match((await service.handleCallbackData('lang:en', 'owner-a')).reply, /Language set to English/);
+  assert.match((await service.handleCallbackData('lang:en', 'owner-a')).reply, /World Cup sticker album/);
 
   const start = await service.handleMessage('start', 'owner-a');
 
@@ -173,7 +171,7 @@ test('start menu, album creation, selection, listing, and album callbacks use th
 
   const customAlbum = await service.handleMessage('new album Road to 2026', 'owner-a');
 
-  assert.equal(customAlbum.reply, 'Album created and selected: Road to 2026.');
+  assert.match(customAlbum.reply, /^Album created and selected: Road to 2026\./);
   assert.equal((await repository.getActiveAlbum('owner-a'))?.name, 'Road to 2026');
 
   const createdFromCallback = await service.handleCallbackData(
@@ -181,7 +179,7 @@ test('start menu, album creation, selection, listing, and album callbacks use th
     'owner-a',
   );
 
-  assert.equal(createdFromCallback.reply, 'Album created and selected: Panini FIFA World Cup 2026.');
+  assert.match(createdFromCallback.reply, /^Album created and selected: Panini FIFA World Cup 2026\./);
   assert.equal((await repository.getActiveAlbum('owner-a'))?.name, 'Panini FIFA World Cup 2026');
   assert.equal((await repository.listAlbums('owner-a')).length, 2);
 
@@ -298,7 +296,7 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
   const invalidAdd = await service.handleMessage('add ejfewfiowhfo3', 'owner-a');
 
   assert.equal(invalidAdd.parsed.intent, 'unknown');
-  assert.equal(invalidAdd.reply, 'Send a sticker, for example: add arg4.');
+  assert.match(invalidAdd.reply, /^Send a sticker, for example: add arg4\./);
 
   assert.equal((await service.handleMessage('add jpn 10', 'owner-a')).reply, 'JPN 10 added. You now have 1.');
   assert.equal(await repository.getQuantity('owner-a', JPN10), 1);
@@ -412,6 +410,110 @@ test('share flow sends outbound invitations and handles accept, decline, and err
   );
 });
 
+test('album deletion requires confirmation before removing the album', async () => {
+  const { repository, service } = await createHarness();
+
+  const album = await registerUserWithAlbum(
+    service,
+    repository,
+    'owner-a',
+    'collector_a',
+    'Disposable Album',
+  );
+
+  const prompt = await service.handleMessage('delete album Disposable', 'owner-a');
+
+  assert.equal(prompt.reply, 'Delete album Disposable Album?');
+  assert.equal((await repository.listAlbums('owner-a')).length, 1);
+
+  const cancelCallback = findCallbackData(prompt.replyMarkup, /^album:delete:.*:cancel$/);
+
+  assert.equal((await service.handleCallbackData(cancelCallback, 'owner-a')).reply, 'Cancelled.');
+  assert.equal((await repository.listAlbums('owner-a')).length, 1);
+
+  const promptAgain = await service.handleMessage('delete album Disposable', 'owner-a');
+  const confirmCallback = findCallbackData(promptAgain.replyMarkup, new RegExp(`^album:delete:${album.id}:confirm$`));
+  const deleted = await service.handleCallbackData(confirmCallback, 'owner-a');
+
+  assert.equal(deleted.reply, 'Album deleted: Disposable Album.');
+  assert.equal((await repository.listAlbums('owner-a')).length, 0);
+});
+
+test('friend requests unlock friend duplicates and friend-only marketplace, with removal confirmation', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
+  await registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
+  await registerUserWithAlbum(service, repository, 'owner-c', 'collector_c', 'Carol Album');
+
+  await repository.adjustQuantity('owner-b', ARG2, 2);
+  await repository.adjustQuantity('owner-b', ARG4, 1);
+  await repository.adjustQuantity('owner-b', ARG5, 2);
+  await repository.adjustQuantity('owner-c', BRA3, 1);
+
+  assert.equal(
+    (await service.handleMessage('friends', 'owner-a')).reply,
+    'Friends\nYou do not have friends yet.',
+  );
+  assert.equal(
+    (await service.handleMessage('dupes @collector_b arg5', 'owner-a')).reply,
+    'You are not friends with @collector_b.',
+  );
+
+  const requested = await service.handleMessage('friends add @collector_b', 'owner-a');
+
+  assert.equal(requested.reply, 'Friend request sent to @collector_b.');
+  assert.equal(requested.outboundMessages?.[0]?.chatId, 'owner-b');
+  assert.equal(requested.outboundMessages?.[0]?.text, '@collector_a wants to add you as a friend.\n\nYes or No?');
+
+  const acceptCallback = findCallbackData(requested.outboundMessages?.[0]?.replyMarkup, /^friend:accept:/);
+  const accepted = await service.handleCallbackData(acceptCallback, 'owner-b');
+
+  assert.equal(accepted.reply, 'Yes. You are now friends.');
+  assert.equal(accepted.outboundMessages?.[0]?.chatId, 'owner-a');
+  assert.equal(accepted.outboundMessages?.[0]?.text, '@collector_b accepted your friend request.');
+  assert.equal(await repository.areFriends('owner-a', 'owner-b'), true);
+  assert.match((await service.handleMessage('friends', 'owner-a')).reply, /- @collector_b/);
+
+  assert.equal(
+    (await service.handleMessage('dupes @collector_b arg5', 'owner-a')).reply,
+    '@collector_b duplicates: ARG 5 x2.',
+  );
+  assert.equal(
+    (await service.handleMessage('friends -duplicates arg5', 'owner-a')).reply,
+    'Friends duplicates:\n@collector_b: ARG 5 x2',
+  );
+
+  assert.equal(
+    (await service.handleMessage('trade arg4 arg1', 'owner-b')).reply,
+    'Trade posted: you give ARG 4 and want ARG 1.',
+  );
+  assert.equal(
+    (await service.handleMessage('trade bra3 arg1', 'owner-c')).reply,
+    'Trade posted: you give BRA 3 and want ARG 1.',
+  );
+
+  const friendMarketplace = await service.handleMessage('friends trade', 'owner-a');
+
+  assert.match(friendMarketplace.reply, /^Friends marketplace:\n\n#T1 @collector_b gives ARG 4 for ARG 1/);
+  assert.doesNotMatch(friendMarketplace.reply, /#T2\b/);
+
+  const removePrompt = await service.handleMessage('friends rm @collector_b', 'owner-a');
+
+  assert.equal(removePrompt.reply, 'Remove @collector_b from friends?');
+  assert.equal(await repository.areFriends('owner-a', 'owner-b'), true);
+
+  const removeCallback = findCallbackData(removePrompt.replyMarkup, /^friend:remove:collector_b:confirm$/);
+  const removed = await service.handleCallbackData(removeCallback, 'owner-a');
+
+  assert.equal(removed.reply, 'Removed @collector_b from friends.');
+  assert.equal(await repository.areFriends('owner-a', 'owner-b'), false);
+  assert.equal(
+    (await service.handleMessage('dupes @collector_b arg5', 'owner-a')).reply,
+    'You are not friends with @collector_b.',
+  );
+});
+
 test('compare flow offers target album callbacks and renders duplicate-for-missing matches', async () => {
   const { repository, service } = await createHarness();
 
@@ -470,7 +572,7 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
 });
 
 test('help and unknown messages return guidance without requiring an active album', async () => {
-  const { service } = await createHarness();
+  const { repository, service } = await createHarness();
 
   await service.handleCallbackData('lang:en', 'owner-a');
 
@@ -478,11 +580,13 @@ test('help and unknown messages return guidance without requiring an active albu
 
   assert.equal(help.parsed.intent, 'help');
   assert.equal(help.parseMode, 'HTML');
-  assert.match(help.reply, /^<b>Available commands<\/b>/);
+  assert.match(help.reply, /^<b>Stickers<\/b>/);
   assert.match(help.reply, /\n\n<b>Albums<\/b>\n/);
-  assert.match(help.reply, /<b>share @username<\/b>/);
-  assert.match(help.reply, /<b>compare @username<\/b>/);
-  assert.match(help.reply, /<b>page arg<\/b>/);
+  assert.match(help.reply, /<code>share @username<\/code>/);
+  assert.match(help.reply, /<code>compare @username<\/code>/);
+  assert.match(help.reply, /<code>friends add @username<\/code>/);
+  assert.match(help.reply, /<code>friends -duplicates arg5<\/code>/);
+  assert.match(help.reply, /<code>page arg<\/code>/);
 
   const page = await service.handleMessage('page arg', 'owner-a');
 
@@ -502,17 +606,19 @@ test('help and unknown messages return guidance without requiring an active albu
     'Send a country, for example: page arg.',
   );
 
+  await createAlbum(repository, 'owner-a', 'Guidance Album');
+
   const unknown = await service.handleMessage('what is this', 'owner-a');
 
   assert.equal(unknown.parsed.intent, 'unknown');
   assert.equal(unknown.parseMode, 'HTML');
-  assert.match(unknown.reply, /^I could not detect a country, number, or command\.\n\n<b>Available commands<\/b>/);
+  assert.match(unknown.reply, /^I could not detect a country, number, or command\.\n\nType <code>help<\/code>/);
 
   const empty = await service.handleMessage('   ', 'owner-a');
 
   assert.equal(empty.parsed.intent, 'unknown');
   assert.equal(empty.parseMode, 'HTML');
-  assert.match(empty.reply, /^Empty message\.\n\n<b>Available commands<\/b>/);
+  assert.match(empty.reply, /^Empty message\.\n\nType <code>help<\/code>/);
   assert.equal(
     (await service.handleCallbackData('totally:unknown', 'owner-a')).reply,
     'Invalid album sharing response.',

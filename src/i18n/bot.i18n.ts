@@ -34,6 +34,7 @@ type TranslationKey =
   | 'albumRenamed'
   | 'albumRenameFailed'
   | 'albumDeleted'
+  | 'albumDeleteConfirm'
   | 'albumDeleteFailed'
   | 'albumLeft'
   | 'albumLeaveFailed'
@@ -101,6 +102,26 @@ type TranslationKey =
   | 'compareTheyCanGive'
   | 'compareYouCanGive'
   | 'compareNone'
+  | 'confirmationCancelled'
+  | 'friendsTitle'
+  | 'friendsNone'
+  | 'friendsIncomingTitle'
+  | 'friendsOutgoingTitle'
+  | 'friendRequestSent'
+  | 'friendRequestFailed'
+  | 'friendInvite'
+  | 'friendAccepted'
+  | 'friendDeclined'
+  | 'friendAcceptedNotify'
+  | 'friendDeclinedNotify'
+  | 'friendNotFriends'
+  | 'friendRemoveConfirm'
+  | 'friendRemoved'
+  | 'friendRemoveFailed'
+  | 'friendsDuplicatesTitle'
+  | 'friendsDuplicatesNone'
+  | 'friendDuplicatesNone'
+  | 'friendDuplicatesList'
   | 'onboardingWelcome'
   | 'firstAlbumHint'
   | 'unknownCommandHint'
@@ -139,6 +160,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     albumRenamed: 'Album renamed to {albumName}.',
     albumRenameFailed: 'I could not rename the album.',
     albumDeleted: 'Album deleted: {albumName}.',
+    albumDeleteConfirm: 'Delete album {albumName}?',
     albumDeleteFailed: 'I could not delete the album.',
     albumLeft: 'You left the shared album: {albumName}.',
     albumLeaveFailed: 'I could not leave the album.',
@@ -206,6 +228,26 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     compareTheyCanGive: '{username} can give you: {stickers}.',
     compareYouCanGive: 'You can give {username}: {stickers}.',
     compareNone: 'none',
+    confirmationCancelled: 'Cancelled.',
+    friendsTitle: 'Friends',
+    friendsNone: 'You do not have friends yet.',
+    friendsIncomingTitle: 'Pending requests for you:',
+    friendsOutgoingTitle: 'Requests you sent:',
+    friendRequestSent: 'Friend request sent to {username}.',
+    friendRequestFailed: 'I could not send the friend request.',
+    friendInvite: '{inviterName} wants to add you as a friend.\n\nYes or No?',
+    friendAccepted: 'Yes. You are now friends.',
+    friendDeclined: 'No. Friend request declined.',
+    friendAcceptedNotify: '{responderName} accepted your friend request.',
+    friendDeclinedNotify: '{responderName} declined your friend request.',
+    friendNotFriends: 'You are not friends with {username}.',
+    friendRemoveConfirm: 'Remove {username} from friends?',
+    friendRemoved: 'Removed {username} from friends.',
+    friendRemoveFailed: 'I could not remove that friend.',
+    friendsDuplicatesTitle: 'Friends duplicates:',
+    friendsDuplicatesNone: 'No friend duplicates found.',
+    friendDuplicatesNone: '{username} has no matching duplicates.',
+    friendDuplicatesList: '{username} duplicates: {stickers}.',
     onboardingWelcome: 'Hi! I\'ll help you track your 2026 World Cup sticker album.\n\nJust type the name you want to give it, for example: <i>My album</i> or <i>World Cup 2026</i>',
     firstAlbumHint: 'To add stickers, type the country code and number:\n<code>arg4</code> → Argentina #4   <code>bra7</code> → Brazil #7\n\nOther useful commands:\n<code>missing arg</code> — missing stickers from a country\n<code>progress</code> — overall progress\n<code>help</code> — all commands',
     unknownCommandHint: 'Type <code>help</code> to see available commands.',
@@ -231,8 +273,14 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<b>Social</b>',
       '<code>share @username</code> — share album',
       '<code>compare @username</code> — compare collections',
+      '<code>duplicates @username</code> — friend duplicates',
+      '<code>friends</code> — list friends',
+      '<code>friends add @username</code> — send friend request',
+      '<code>friends rm @username</code> — remove friend',
+      '<code>friends -duplicates arg5</code> — friends duplicates',
       '<code>trade arg4 bra2</code> — post a trade',
       '<code>marketplace</code> — see available trades',
+      '<code>friends trade</code> — friend marketplace',
     ].join('\n'),
   },
   es: {
@@ -267,6 +315,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     albumRenamed: 'Álbum renombrado a {albumName}.',
     albumRenameFailed: 'No pude renombrar el álbum.',
     albumDeleted: 'Álbum eliminado: {albumName}.',
+    albumDeleteConfirm: 'Eliminar album {albumName}?',
     albumDeleteFailed: 'No pude eliminar el álbum.',
     albumLeft: 'Saliste del álbum compartido: {albumName}.',
     albumLeaveFailed: 'No pude salir del álbum.',
@@ -334,6 +383,26 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     compareTheyCanGive: '{username} te puede dar: {stickers}.',
     compareYouCanGive: 'Tu le puedes dar a {username}: {stickers}.',
     compareNone: 'ninguna',
+    confirmationCancelled: 'Cancelado.',
+    friendsTitle: 'Amigos',
+    friendsNone: 'Todavia no tienes amigos.',
+    friendsIncomingTitle: 'Solicitudes pendientes para ti:',
+    friendsOutgoingTitle: 'Solicitudes que enviaste:',
+    friendRequestSent: 'Solicitud de amistad enviada a {username}.',
+    friendRequestFailed: 'No pude enviar la solicitud de amistad.',
+    friendInvite: '{inviterName} quiere agregarte como amigo.\n\nSi o no?',
+    friendAccepted: 'Si. Ahora son amigos.',
+    friendDeclined: 'No. Solicitud de amistad rechazada.',
+    friendAcceptedNotify: '{responderName} acepto tu solicitud de amistad.',
+    friendDeclinedNotify: '{responderName} rechazo tu solicitud de amistad.',
+    friendNotFriends: 'No eres amigo de {username}.',
+    friendRemoveConfirm: 'Eliminar a {username} de amigos?',
+    friendRemoved: '{username} eliminado de amigos.',
+    friendRemoveFailed: 'No pude eliminar ese amigo.',
+    friendsDuplicatesTitle: 'Duplicadas de amigos:',
+    friendsDuplicatesNone: 'No encontre duplicadas de amigos.',
+    friendDuplicatesNone: '{username} no tiene duplicadas que coincidan.',
+    friendDuplicatesList: 'Duplicadas de {username}: {stickers}.',
     onboardingWelcome: '¡Hola! Voy a ayudarte a llevar tu álbum del Mundial 2026.\n\nEscríbeme el nombre que le quieres dar, por ejemplo: <i>Mi álbum</i> o <i>Álbum con los cabros</i>',
     firstAlbumHint: 'Para agregar estampas, escribe el país y el número:\n<code>arg4</code> → Argentina #4   <code>bra7</code> → Brasil #7\n\nOtros comandos útiles:\n<code>missing arg</code> — faltantes de un país\n<code>progress</code> — progreso general\n<code>help</code> — todos los comandos',
     unknownCommandHint: 'Escribe <code>help</code> para ver los comandos disponibles.',
@@ -359,8 +428,14 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<b>Social</b>',
       '<code>share @usuario</code> — compartir álbum',
       '<code>compare @usuario</code> — comparar colecciones',
+      '<code>duplicates @usuario</code> — repetidas de un amigo',
+      '<code>friends</code> — listar amigos',
+      '<code>friends add @usuario</code> — enviar solicitud',
+      '<code>friends rm @usuario</code> — eliminar amigo',
+      '<code>friends -duplicates arg5</code> — repetidas de amigos',
       '<code>trade arg4 bra2</code> — publicar intercambio',
       '<code>marketplace</code> — ver intercambios',
+      '<code>friends trade</code> — intercambios de amigos',
     ].join('\n'),
   },
   zh: {
@@ -376,6 +451,26 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     compareTheyCanGive: '{username} can give you: {stickers}.',
     compareYouCanGive: 'You can give {username}: {stickers}.',
     compareNone: 'none',
+    confirmationCancelled: 'Cancelled.',
+    friendsTitle: 'Friends',
+    friendsNone: 'You do not have friends yet.',
+    friendsIncomingTitle: 'Pending requests for you:',
+    friendsOutgoingTitle: 'Requests you sent:',
+    friendRequestSent: 'Friend request sent to {username}.',
+    friendRequestFailed: 'I could not send the friend request.',
+    friendInvite: '{inviterName} wants to add you as a friend.\n\nYes or No?',
+    friendAccepted: 'Yes. You are now friends.',
+    friendDeclined: 'No. Friend request declined.',
+    friendAcceptedNotify: '{responderName} accepted your friend request.',
+    friendDeclinedNotify: '{responderName} declined your friend request.',
+    friendNotFriends: 'You are not friends with {username}.',
+    friendRemoveConfirm: 'Remove {username} from friends?',
+    friendRemoved: 'Removed {username} from friends.',
+    friendRemoveFailed: 'I could not remove that friend.',
+    friendsDuplicatesTitle: 'Friends duplicates:',
+    friendsDuplicatesNone: 'No friend duplicates found.',
+    friendDuplicatesNone: '{username} has no matching duplicates.',
+    friendDuplicatesList: '{username} duplicates: {stickers}.',
     chooseLanguage: '请选择语言。',
     languageSaved: '语言已设置为中文。',
     buttonYes: '是',
@@ -407,6 +502,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     albumRenamed: '相册已重命名为：{albumName}。',
     albumRenameFailed: '无法重命名相册。',
     albumDeleted: '相册已删除：{albumName}。',
+    albumDeleteConfirm: 'Delete album {albumName}?',
     albumDeleteFailed: '无法删除相册。',
     albumLeft: '你已离开共享相册：{albumName}。',
     albumLeaveFailed: '无法离开相册。',
@@ -487,8 +583,14 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<b>社交</b>',
       '<code>share @用户名</code> — 共享相册',
       '<code>compare @用户名</code> — 比较收藏',
+      '<code>duplicates @用户名</code> — friend duplicates',
+      '<code>friends</code> — list friends',
+      '<code>friends add @用户名</code> — send friend request',
+      '<code>friends rm @用户名</code> — remove friend',
+      '<code>friends -duplicates arg5</code> — friends duplicates',
       '<code>trade arg4 bra2</code> — 发布交换',
       '<code>marketplace</code> — 查看交换',
+      '<code>friends trade</code> — friend marketplace',
     ].join('\n'),
   },
 };

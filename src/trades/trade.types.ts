@@ -42,6 +42,7 @@ export type TradePair = {
 
 export type MarketplaceSearch = {
   mineOnly?: boolean;
+  friendsOnly?: boolean;
   ownerUsername?: string;
   giveSticker?: StickerRef;
   needSticker?: StickerRef;
