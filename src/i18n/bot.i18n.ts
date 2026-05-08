@@ -5,6 +5,8 @@ type TranslationParams = Record<string, string | number>;
 type TranslationKey =
   | 'chooseLanguage'
   | 'languageSaved'
+  | 'buttonYes'
+  | 'buttonNo'
   | 'unknownCallback'
   | 'emptyMessage'
   | 'unknownCommand'
@@ -18,6 +20,7 @@ type TranslationKey =
   | 'noCountryStickers'
   | 'missingStickers'
   | 'stickerAdded'
+  | 'duplicateSuffix'
   | 'stickerRemoved'
   | 'cannotRemove'
   | 'nothingToUndo'
@@ -52,6 +55,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
   en: {
     chooseLanguage: 'Choose your language.',
     languageSaved: 'Language set to English.',
+    buttonYes: 'Yes',
+    buttonNo: 'No',
     unknownCallback: 'Invalid action.',
     emptyMessage: 'Empty message.',
     unknownCommand: 'I could not detect a country, number, or command.',
@@ -65,6 +70,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     noCountryStickers: 'You do not have stickers from {countryCode}.',
     missingStickers: 'Missing ({count}): {stickers}.',
     stickerAdded: '{label} added. You now have {quantity}{duplicateText}.',
+    duplicateSuffix: ' ({count} duplicate/s)',
     stickerRemoved: '{label} removed. You now have {quantity}.',
     cannotRemove: 'You cannot remove {label} because you do not have it.',
     nothingToUndo: 'There are no actions to undo.',
@@ -108,6 +114,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
   es: {
     chooseLanguage: 'Elige tu idioma.',
     languageSaved: 'Idioma configurado en español.',
+    buttonYes: 'Si',
+    buttonNo: 'No',
     unknownCallback: 'Accion invalida.',
     emptyMessage: 'Mensaje vacio.',
     unknownCommand: 'No pude detectar pais, numero o comando.',
@@ -121,6 +129,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     noCountryStickers: 'No tienes estampas de {countryCode}.',
     missingStickers: 'Faltantes ({count}): {stickers}.',
     stickerAdded: '{label} agregada. Ahora tienes {quantity}{duplicateText}.',
+    duplicateSuffix: ' ({count} duplicada/s)',
     stickerRemoved: '{label} eliminada. Ahora tienes {quantity}.',
     cannotRemove: 'No puedes eliminar {label} porque no la tienes.',
     nothingToUndo: 'No hay acciones para deshacer.',
@@ -139,7 +148,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     shareSelf: 'No puedes compartir el album contigo mismo.',
     shareAlreadyShared: 'Ya compartes album con @{username}.',
     shareSent: 'Solicitud enviada a @{username}.',
-    shareInvite: '{inviterName} quiere compartir su album contigo.\n\nYes or No?',
+    shareInvite: '{inviterName} quiere compartir su album contigo.\n\nSi o No?',
     shareInvalid: 'Respuesta de compartir album invalida.',
     shareRequestNotFound: 'Solicitud de album compartido no encontrada.',
     shareAlreadyAnswered: 'Esta solicitud ya fue respondida.',
@@ -164,6 +173,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
   zh: {
     chooseLanguage: '请选择语言。',
     languageSaved: '语言已设置为中文。',
+    buttonYes: '是',
+    buttonNo: '否',
     unknownCallback: '无效操作。',
     emptyMessage: '消息为空。',
     unknownCommand: '我无法识别国家、编号或命令。',
@@ -177,6 +188,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     noCountryStickers: '你没有 {countryCode} 的贴纸。',
     missingStickers: '缺少（{count}）：{stickers}。',
     stickerAdded: '已添加 {label}。现在数量：{quantity}{duplicateText}。',
+    duplicateSuffix: '（{count} 张重复）',
     stickerRemoved: '已删除 {label}。现在数量：{quantity}。',
     cannotRemove: '无法删除 {label}，因为你没有它。',
     nothingToUndo: '没有可撤销的操作。',
@@ -195,7 +207,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     shareSelf: '你不能和自己共享相册。',
     shareAlreadyShared: '你已经和 @{username} 共享相册。',
     shareSent: '已向 @{username} 发送请求。',
-    shareInvite: '{inviterName} 想和你共享相册。\n\nYes or No?',
+    shareInvite: '{inviterName} 想和你共享相册。\n\n是或否？',
     shareInvalid: '共享相册响应无效。',
     shareRequestNotFound: '找不到共享相册请求。',
     shareAlreadyAnswered: '此请求已被回复。',

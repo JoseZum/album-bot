@@ -276,7 +276,7 @@ export class StickerBotService {
 
     const label = formatSticker(sticker, { includeName: showNames });
     const duplicateText = result.currentQuantity > 1
-      ? ` (${result.currentQuantity - 1} duplicates)`
+      ? t(language, 'duplicateSuffix', { count: result.currentQuantity - 1 })
       : '';
 
     return t(language, 'stickerAdded', {
@@ -445,11 +445,11 @@ export class StickerBotService {
             inline_keyboard: [
               [
                 {
-                  text: 'Yes',
+                  text: t(recipientLanguage, 'buttonYes'),
                   callback_data: `share:accept:${result.request.id}`,
                 },
                 {
-                  text: 'No',
+                  text: t(recipientLanguage, 'buttonNo'),
                   callback_data: `share:decline:${result.request.id}`,
                 },
               ],
