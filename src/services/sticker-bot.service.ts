@@ -931,8 +931,8 @@ export class StickerBotService {
     const header = [
       t(language, 'countryHeader', {
         flag: getCountryFlag(stats.countryCode),
-        countryCode: escapeTelegramHtml(stats.countryCode),
-        countryName: escapeTelegramHtml(stats.countryName),
+        countryCode: stats.countryCode,
+        countryName: stats.countryName,
       }),
       summaryParts.join(' · '),
     ].join('\n');
@@ -944,8 +944,8 @@ export class StickerBotService {
       const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
       const qty = stats.quantities[stickerKey(sticker)] ?? 0;
       const name = showNames ? country.names[i] : undefined;
-      const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, ' ')}`;
-      const nameStr = name ? ` ${escapeTelegramHtml(name)}` : '';
+      const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, '⠀')}`;
+      const nameStr = name ? ` ${name}` : '';
 
       if (qty > 0) {
         const dupeStr = qty > 1 ? ` ×${qty}` : '';
@@ -956,8 +956,7 @@ export class StickerBotService {
     }
 
     return {
-      reply: `${header}\n\n<pre>${rows.join('\n')}</pre>`,
-      parseMode: 'HTML',
+      reply: `${header}\n\n${rows.join('\n')}`,
     };
   }
 
