@@ -14,6 +14,13 @@ const postBotMessage = (req: Request, res: Response): void => {
     return;
   }
 
+  stickerBotService.registerUser({
+    ownerId,
+    username: typeof req.body.username === 'string' ? req.body.username : undefined,
+    firstName: typeof req.body.firstName === 'string' ? req.body.firstName : undefined,
+    lastName: typeof req.body.lastName === 'string' ? req.body.lastName : undefined,
+  });
+
   res.status(200).json({
     success: true,
     data: stickerBotService.handleMessage(text, ownerId),
