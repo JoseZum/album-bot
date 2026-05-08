@@ -482,6 +482,25 @@ test('help and unknown messages return guidance without requiring an active albu
   assert.match(help.reply, /\n\n<b>Albums<\/b>\n/);
   assert.match(help.reply, /<b>share @username<\/b>/);
   assert.match(help.reply, /<b>compare @username<\/b>/);
+  assert.match(help.reply, /<b>page arg<\/b>/);
+
+  const page = await service.handleMessage('page arg', 'owner-a');
+
+  assert.equal(page.parsed.intent, 'page');
+  assert.equal(page.reply, 'Argentina (ARG) is on page 82.');
+
+  assert.equal(
+    (await service.handleMessage('page turquia', 'owner-a')).reply,
+    'Türkiye (TUR) is on page 38.',
+  );
+  assert.equal(
+    (await service.handleMessage('page atlantis', 'owner-a')).reply,
+    'I do not recognize ATLANTIS.',
+  );
+  assert.equal(
+    (await service.handleMessage('page', 'owner-a')).reply,
+    'Send a country, for example: page arg.',
+  );
 
   const unknown = await service.handleMessage('what is this', 'owner-a');
 

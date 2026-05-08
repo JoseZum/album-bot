@@ -205,6 +205,26 @@ test('parser detects progress, start, language, undo, and help commands', () => 
   });
 });
 
+test('parser detects album page lookups by code and country alias', () => {
+  const argPage = parseStickerMessage('page arg');
+
+  assert.equal(argPage.intent, 'page');
+  assert.equal(argPage.country?.code, 'ARG');
+  assert.equal(argPage.country?.page, 82);
+
+  const turkeyPage = parseStickerMessage('pagina turquia');
+
+  assert.equal(turkeyPage.intent, 'page');
+  assert.equal(turkeyPage.country?.code, 'TUR');
+  assert.equal(turkeyPage.country?.page, 38);
+
+  const missingPage = parseStickerMessage('page atlantis');
+
+  assert.equal(missingPage.intent, 'page');
+  assert.equal(missingPage.country, undefined);
+  assert.equal(missingPage.countryInput, 'atlantis');
+});
+
 test('parser detects share and compare commands', () => {
   assert.deepEqual(parseStickerMessage('/share @Collector_123'), {
     intent: 'share',

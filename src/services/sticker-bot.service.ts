@@ -1,6 +1,7 @@
 import {
   AVAILABLE_ALBUM_TEMPLATES,
 } from '../catalog/album-templates.catalog';
+import type { AlbumPageEntry } from '../catalog/album-pages.catalog';
 import {
   WORLD_CUP_CATALOG,
   formatSticker,
@@ -353,6 +354,8 @@ export class StickerBotService {
         return { reply: await this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language) };
       case 'progress':
         return { reply: await this.showProgress(ownerId, language) };
+      case 'page':
+        return { reply: this.showAlbumPage(parsed.country, parsed.countryInput, language) };
       case 'share':
         return this.shareAlbum(ownerId, parsed.targetUsername, language);
       case 'compare':
@@ -1000,6 +1003,26 @@ export class StickerBotService {
       label,
       quantity: result.currentQuantity,
       duplicateText,
+    });
+  }
+
+  private showAlbumPage(
+    country: AlbumPageEntry | undefined,
+    countryInput: string | undefined,
+    language: BotLanguage,
+  ): string {
+    if (!countryInput) {
+      return t(language, 'albumPageRequired');
+    }
+
+    if (!country) {
+      return t(language, 'albumPageUnknown', { country: countryInput.toUpperCase() });
+    }
+
+    return t(language, 'albumPage', {
+      countryName: country.name,
+      countryCode: country.code,
+      page: country.page,
     });
   }
 

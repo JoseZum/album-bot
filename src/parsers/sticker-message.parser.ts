@@ -1,4 +1,8 @@
 import {
+  resolveAlbumPage,
+  type AlbumPageEntry,
+} from '../catalog/album-pages.catalog';
+import {
   getCountryAliasesForParsing,
   normalizeForParsing,
   resolveCountry,
@@ -23,6 +27,7 @@ export type ParsedBotMessage =
   | { intent: 'missing'; countryCode?: string; showNames: boolean }
   | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
+  | { intent: 'page'; country?: AlbumPageEntry; countryInput?: string; showNames: boolean }
   | { intent: 'share'; targetUsername: string; showNames: boolean }
   | { intent: 'compare'; targetUsername: string; countryCode?: string; showNames: boolean }
   | { intent: 'albumList'; showNames: boolean }
@@ -43,6 +48,7 @@ type LeadingIntent =
   | 'missing'
   | 'duplicates'
   | 'progress'
+  | 'page'
   | 'start'
   | 'language'
   | 'undo'
@@ -53,6 +59,7 @@ const REMOVE_ALIASES = new Set(['remove', 'rm']);
 const MISSING_ALIASES = new Set(['missing']);
 const DUPLICATES_ALIASES = new Set(['duplicates', 'dups']);
 const PROGRESS_ALIASES = new Set(['progress', 'stats']);
+const PAGE_ALIASES = new Set(['page', 'pagina']);
 const START_ALIASES = new Set(['start', 'menu', 'album', 'albums']);
 const LANGUAGE_ALIASES = new Set(['language', 'lang']);
 const UNDO_ALIASES = new Set(['undo']);
@@ -109,6 +116,10 @@ const extractLeadingIntent = (
 
   if (PROGRESS_ALIASES.has(firstToken)) {
     return { intent: 'progress', remainder };
+  }
+
+  if (PAGE_ALIASES.has(firstToken)) {
+    return { intent: 'page', remainder };
   }
 
   if (START_ALIASES.has(firstToken)) {
@@ -635,6 +646,15 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
     || intent === 'language'
   ) {
     return { intent, showNames };
+  }
+
+  if (intent === 'page') {
+    return {
+      intent: 'page',
+      country: remainder ? resolveAlbumPage(remainder) : undefined,
+      countryInput: remainder || undefined,
+      showNames,
+    };
   }
 
   if (intent === 'addSticker' || intent === 'removeSticker') {

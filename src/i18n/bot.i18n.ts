@@ -48,6 +48,9 @@ type TranslationKey =
   | 'stickerNotOwned'
   | 'stickerOwned'
   | 'unknownCountry'
+  | 'albumPage'
+  | 'albumPageRequired'
+  | 'albumPageUnknown'
   | 'countryHeader'
   | 'countryProgress'
   | 'ownedStickers'
@@ -147,6 +150,9 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     stickerNotOwned: 'You do not have {label}.',
     stickerOwned: 'You have {label}. Quantity: {quantity}.',
     unknownCountry: 'I do not recognize {country}.',
+    albumPage: '{countryName} ({countryCode}) is on page {page}.',
+    albumPageRequired: 'Send a country, for example: page arg.',
+    albumPageUnknown: 'I do not recognize {country}.',
     countryHeader: '{flag} {countryName} ({countryCode})',
     countryProgress: '{owned}/{total} ({percentage})',
     countryDuplicates: 'Duplicates: {duplicates}',
@@ -229,6 +235,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<b>arg4</b>, <b>arg 4</b>, <b>ARG-4</b>, or <b>argentina 4</b> - check a sticker.',
       '<b>arg</b> - show country progress.',
       '<b>arg -name</b> - show names when available.',
+      '<b>page arg</b> - show the album page for a country.',
       '<b>add arg4</b> - add a sticker.',
       '<b>rm arg4</b> or <b>remove arg 4</b> - remove a sticker.',
       '',
@@ -285,6 +292,9 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     stickerNotOwned: 'No tienes {label}.',
     stickerOwned: 'Sí tienes {label}. Cantidad: {quantity}.',
     unknownCountry: 'No reconozco {country}.',
+    albumPage: '{countryName} ({countryCode}) esta en la pagina {page}.',
+    albumPageRequired: 'Indica un pais, por ejemplo: page arg.',
+    albumPageUnknown: 'No reconozco {country}.',
     countryHeader: '{flag} {countryName} ({countryCode})',
     countryProgress: '{owned}/{total} ({percentage})',
     countryDuplicates: 'Repetidas: {duplicates}',
@@ -367,6 +377,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<b>arg4</b>, <b>arg 4</b>, <b>ARG-4</b> o <b>argentina 4</b> - consulta una estampa.',
       '<b>arg</b> - muestra progreso del país.',
       '<b>arg -name</b> - muestra nombres cuando existan en el catálogo.',
+      '<b>page arg</b> - muestra la pagina del album para un pais.',
       '<b>add arg4</b> - agrega una estampa.',
       '<b>rm arg4</b> o <b>remove arg 4</b> - elimina una estampa.',
       '',
@@ -435,6 +446,9 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     stickerNotOwned: '你没有 {label}。',
     stickerOwned: '你有 {label}。数量：{quantity}。',
     unknownCountry: '我不认识 {country}。',
+    albumPage: '{countryName} ({countryCode}) is on page {page}.',
+    albumPageRequired: 'Send a country, for example: page arg.',
+    albumPageUnknown: 'I do not recognize {country}.',
     countryHeader: '{flag} {countryName}（{countryCode}）',
     countryProgress: '{owned}/{total}（{percentage}）',
     countryDuplicates: '重复：{duplicates}',
@@ -505,6 +519,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<b>arg4</b>、<b>arg 4</b>、<b>ARG-4</b> 或 <b>argentina 4</b> - 查询贴纸。',
       '<b>arg</b> - 显示国家进度。',
       '<b>arg -name</b> - 显示目录中已有的名称。',
+      '<b>page arg</b> - show the album page for a country.',
       '<b>add arg4</b> - 添加贴纸。',
       '<b>rm arg4</b> 或 <b>remove arg 4</b> - 删除贴纸。',
       '',
