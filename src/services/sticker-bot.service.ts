@@ -1,6 +1,5 @@
 import {
   AVAILABLE_ALBUM_TEMPLATES,
-  getAlbumTemplate,
 } from '../catalog/album-templates.catalog';
 import {
   WORLD_CUP_CATALOG,
@@ -238,6 +237,18 @@ export class StickerBotService {
         return this.showProgress(ownerId, language);
       case 'share':
         return this.shareAlbum(ownerId, parsed.targetUsername, language).reply;
+      case 'albumList':
+        return this.albumListReply(ownerId, language).reply;
+      case 'albumCreate':
+        return this.createAlbum(ownerId, parsed.albumName, language).reply;
+      case 'albumSelect':
+        return this.selectAlbum(ownerId, parsed.selector, language).reply;
+      case 'albumRename':
+        return this.renameAlbum(ownerId, parsed.albumName, parsed.selector, language).reply;
+      case 'albumDelete':
+        return this.deleteAlbum(ownerId, parsed.selector, language).reply;
+      case 'albumLeave':
+        return this.leaveAlbum(ownerId, language).reply;
       case 'start':
         return this.startMenuReply(ownerId, language).reply;
       case 'language':
@@ -606,9 +617,7 @@ export class StickerBotService {
       lines.push('');
       lines.push(t(language, 'yourAlbumsTitle'));
       lines.push(
-        ...userAlbums.map((album) =>
-          `${album.isActive ? '*' : '-'} ${album.name} (${album.memberCount})`,
-        ),
+        ...userAlbums.map((album, index) => this.formatAlbumLine(album, index, language)),
       );
     }
 
@@ -637,6 +646,245 @@ export class StickerBotService {
         inline_keyboard: albumRows,
       },
     };
+  }
+
+  private albumListReply(ownerId: string, language: BotLanguage): BotActionResult {
+    const userAlbums = this.repository.listAlbums(ownerId);
+    const activeAlbum = this.repository.getActiveAlbum(ownerId);
+    const lines = [t(language, 'albumsTitle')];
+
+    if (activeAlbum) {
+      lines.push(t(language, 'activeAlbumLine', { albumName: activeAlbum.name }));
+    } else {
+      lines.push(t(language, 'noActiveAlbum'));
+    }
+
+    if (userAlbums.length === 0) {
+      lines.push('');
+      lines.push(t(language, 'noAlbums'));
+      lines.push(t(language, 'availableAlbumTemplates', {
+        templates: AVAILABLE_ALBUM_TEMPLATES.map((albumTemplate) => albumTemplate.name).join(', '),
+      }));
+
+      return {
+        reply: lines.join('\n'),
+        replyMarkup: this.startMenuReply(ownerId, language).replyMarkup,
+      };
+    }
+
+    lines.push('');
+    lines.push(...userAlbums.map((album, index) => this.formatAlbumLine(album, index, language)));
+
+    return {
+      reply: lines.join('\n'),
+      replyMarkup: {
+        inline_keyboard: userAlbums.map((album) => [
+          {
+            text: `${t(language, 'buttonSelectAlbum')} - ${album.name}`,
+            callback_data: `album:select:${album.id}`,
+          },
+        ]),
+      },
+    };
+  }
+
+  private createAlbum(ownerId: string, albumName: string, language: BotLanguage): BotActionResult {
+    const normalizedAlbumName = albumName.trim();
+
+    if (!normalizedAlbumName) {
+      return { reply: t(language, 'albumNameRequired') };
+    }
+
+    const album = this.repository.createAlbum(
+      ownerId,
+      AVAILABLE_ALBUM_TEMPLATES[0].slug,
+      normalizedAlbumName,
+    );
+
+    if (!album) {
+      return { reply: t(language, 'albumCreateFailed') };
+    }
+
+    return {
+      reply: t(language, 'albumCreated', { albumName: album.name }),
+    };
+  }
+
+  private selectAlbum(ownerId: string, selector: string, language: BotLanguage): BotActionResult {
+    const match = this.findAlbum(ownerId, selector);
+
+    if (match.error) {
+      return { reply: this.translateAlbumLookupError(match.error, language) };
+    }
+
+    const album = this.repository.setActiveAlbum(ownerId, match.album.id);
+
+    if (!album) {
+      return { reply: t(language, 'albumSelectFailed') };
+    }
+
+    return {
+      reply: t(language, 'albumSelected', { albumName: album.name }),
+    };
+  }
+
+  private renameAlbum(
+    ownerId: string,
+    albumName: string,
+    selector: string | undefined,
+    language: BotLanguage,
+  ): BotActionResult {
+    const normalizedAlbumName = albumName.trim();
+
+    if (!normalizedAlbumName) {
+      return { reply: t(language, 'albumNameRequired') };
+    }
+
+    const match = selector
+      ? this.findAlbum(ownerId, selector)
+      : this.findActiveAlbum(ownerId);
+
+    if (match.error) {
+      return { reply: this.translateAlbumLookupError(match.error, language) };
+    }
+
+    const result = this.repository.renameAlbum(ownerId, match.album.id, normalizedAlbumName);
+
+    if (result.error || !result.album) {
+      return {
+        reply: this.translateAlbumRepositoryError(result.error, language)
+          ?? t(language, 'albumRenameFailed'),
+      };
+    }
+
+    return {
+      reply: t(language, 'albumRenamed', { albumName: result.album.name }),
+    };
+  }
+
+  private deleteAlbum(
+    ownerId: string,
+    selector: string | undefined,
+    language: BotLanguage,
+  ): BotActionResult {
+    const match = selector
+      ? this.findAlbum(ownerId, selector)
+      : this.findActiveAlbum(ownerId);
+
+    if (match.error) {
+      return { reply: this.translateAlbumLookupError(match.error, language) };
+    }
+
+    const result = this.repository.deleteAlbum(ownerId, match.album.id);
+
+    if (result.error || !result.album) {
+      return {
+        reply: this.translateAlbumRepositoryError(result.error, language)
+          ?? t(language, 'albumDeleteFailed'),
+      };
+    }
+
+    return {
+      reply: t(language, 'albumDeleted', { albumName: result.album.name }),
+      replyMarkup: this.startMenuReply(ownerId, language).replyMarkup,
+    };
+  }
+
+  private leaveAlbum(ownerId: string, language: BotLanguage): BotActionResult {
+    const match = this.findActiveAlbum(ownerId);
+
+    if (match.error) {
+      return { reply: this.translateAlbumLookupError(match.error, language) };
+    }
+
+    const result = this.repository.leaveAlbum(ownerId, match.album.id);
+
+    if (result.error || !result.album) {
+      return {
+        reply: this.translateAlbumRepositoryError(result.error, language)
+          ?? t(language, 'albumLeaveFailed'),
+      };
+    }
+
+    return {
+      reply: t(language, 'albumLeft', { albumName: result.album.name }),
+      replyMarkup: this.startMenuReply(ownerId, language).replyMarkup,
+    };
+  }
+
+  private findActiveAlbum(ownerId: string): {
+    album: NonNullable<ReturnType<CollectionRepository['getActiveAlbum']>>;
+    error?: never;
+  } | {
+    album?: never;
+    error: 'not_found';
+  } {
+    const album = this.repository.getActiveAlbum(ownerId);
+
+    return album ? { album } : { error: 'not_found' };
+  }
+
+  private findAlbum(ownerId: string, selector: string): {
+    album: NonNullable<ReturnType<CollectionRepository['getActiveAlbum']>>;
+    error?: never;
+  } | {
+    album?: never;
+    error: 'not_found' | 'ambiguous';
+  } {
+    const albums = this.repository.listAlbums(ownerId);
+    const normalizedSelector = selector.trim().toLowerCase();
+    const numberSelector = Number(normalizedSelector);
+
+    if (Number.isInteger(numberSelector) && numberSelector >= 1 && numberSelector <= albums.length) {
+      return { album: albums[numberSelector - 1] };
+    }
+
+    const exactMatch = albums.find((album) =>
+      album.id === selector || album.name.toLowerCase() === normalizedSelector,
+    );
+
+    if (exactMatch) {
+      return { album: exactMatch };
+    }
+
+    const partialMatches = albums.filter((album) =>
+      album.name.toLowerCase().includes(normalizedSelector),
+    );
+
+    if (partialMatches.length === 1) {
+      return { album: partialMatches[0] };
+    }
+
+    if (partialMatches.length > 1) {
+      return { error: 'ambiguous' };
+    }
+
+    return { error: 'not_found' };
+  }
+
+  private formatAlbumLine(
+    album: ReturnType<CollectionRepository['listAlbums']>[number],
+    index: number,
+    language: BotLanguage,
+  ): string {
+    const markers = [
+      album.isActive ? t(language, 'albumActiveMarker') : undefined,
+      album.isShared ? t(language, 'albumSharedMarker') : t(language, 'albumOwnedMarker'),
+    ].filter(Boolean);
+    const ownerText = album.isShared && album.ownerDisplayName
+      ? `, ${album.ownerDisplayName}`
+      : '';
+
+    return `${index + 1}. ${album.name} [${markers.join(', ')}] (${album.memberCount}${ownerText})`;
+  }
+
+  private translateAlbumLookupError(
+    error: 'not_found' | 'ambiguous',
+    language: BotLanguage,
+  ): string {
+    return error === 'ambiguous'
+      ? t(language, 'albumAmbiguous')
+      : t(language, 'albumNotFound');
   }
 
   private requiresActiveAlbum(parsed: ParsedBotMessage): boolean {
@@ -694,6 +942,41 @@ export class StickerBotService {
 
     if (error === 'Esta solicitud ya fue respondida.') {
       return t(language, 'shareAlreadyAnswered');
+    }
+
+    if (error === 'No hay album activo.') {
+      return t(language, 'commandRequiresActiveAlbum');
+    }
+
+    return error;
+  }
+
+  private translateAlbumRepositoryError(
+    error: string | undefined,
+    language: BotLanguage,
+  ): string | undefined {
+    if (!error) {
+      return undefined;
+    }
+
+    if (error === 'Album no encontrado.') {
+      return t(language, 'albumNotFound');
+    }
+
+    if (error === 'Solo el dueno puede renombrar el album.') {
+      return t(language, 'albumOwnerOnlyRename');
+    }
+
+    if (error === 'Solo el dueno puede borrar el album.') {
+      return t(language, 'albumOwnerOnlyDelete');
+    }
+
+    if (error === 'Nombre de album invalido.') {
+      return t(language, 'albumNameRequired');
+    }
+
+    if (error === 'El dueno no puede salir del album. Debe borrarlo.') {
+      return t(language, 'albumCannotLeaveOwned');
     }
 
     return error;
