@@ -106,10 +106,10 @@ test('catalog sorts stickers without mutating input', () => {
 
 test('catalog formats stickers with optional player names', () => {
   assert.equal(formatSticker({ countryCode: 'arg', number: 10 }), 'ARG 10');
-  assert.equal(formatSticker(ARG10, { includeName: true }), 'ARG 10 - Lionel Messi');
-  assert.equal(formatSticker(BRA10, { includeName: true }), 'BRA 10 - Neymar Jr');
-  assert.equal(formatSticker(COL7, { includeName: true }), 'COL 7');
-  assert.equal(getCatalogEntry('fra')?.names[10], 'Kylian Mbappe');
+  assert.equal(formatSticker(ARG10, { includeName: true }), 'ARG 10 - Rodrigo De Paul');
+  assert.equal(formatSticker(BRA10, { includeName: true }), 'BRA 10 - Casemiro');
+  assert.equal(formatSticker(COL7, { includeName: true }), 'COL 7 - Johan Mojica');
+  assert.equal(getCatalogEntry('fra')?.names[10], 'Eduardo Camavinga');
 });
 
 test('parser detects add and remove sticker intents with names flag', () => {

@@ -209,12 +209,7 @@ export class StickerBotService {
         };
       }
 
-      const menu = await this.startMenuReply(ownerId, language);
-
-      return {
-        reply: `${t(language, 'languageSaved')}\n\n${menu.reply}`,
-        replyMarkup: menu.replyMarkup,
-      };
+      return { reply: t(language, 'languageSaved') };
     }
 
     const albumDeleteMatch = /^album:delete:([0-9a-f-]{36}):(confirm|cancel)$/i.exec(callbackData);
@@ -1221,14 +1216,30 @@ export class StickerBotService {
       return t(language, 'unknownCountry', { country: countryCode });
     }
 
+    const header = t(language, 'countryHeader', {
+      flag: getCountryFlag(stats.countryCode),
+      countryCode: stats.countryCode,
+      countryName: stats.countryName,
+    });
+
+    const progress = t(language, 'countryProgress', {
+      owned: stats.owned.length,
+      total: stats.total,
+      percentage: stats.percentage,
+    });
+
     if (stats.missing.length === 0) {
-      return t(language, 'countryComplete', { countryCode: stats.countryCode });
+      return [header, progress, t(language, 'countryComplete')].join('\n');
     }
 
-    return `${stats.countryCode}: ${t(language, 'missingStickers', {
-      count: stats.missing.length,
-      stickers: this.formatStickerList(stats.missing, showNames, language),
-    })}`;
+    return [
+      header,
+      progress,
+      t(language, 'missingStickers', {
+        count: stats.missing.length,
+        stickers: this.formatStickerList(stats.missing, showNames, language),
+      }),
+    ].join('\n');
   }
 
   private async showDuplicates(
@@ -1248,6 +1259,29 @@ export class StickerBotService {
       return countryCode
         ? t(language, 'duplicatesCountryNone', { countryCode })
         : t(language, 'duplicatesNone');
+    }
+
+    if (countryCode && !sticker) {
+      const stats = await this.getCountryStats(ownerId, countryCode);
+      if (stats) {
+        const header = t(language, 'countryHeader', {
+          flag: getCountryFlag(stats.countryCode),
+          countryCode: stats.countryCode,
+          countryName: stats.countryName,
+        });
+        const progress = t(language, 'countryProgress', {
+          owned: stats.owned.length,
+          total: stats.total,
+          percentage: stats.percentage,
+        });
+        return [
+          header,
+          progress,
+          t(language, 'duplicatesList', {
+            stickers: this.formatDuplicateEntries(duplicates, showNames),
+          }),
+        ].join('\n');
+      }
     }
 
     return t(language, 'duplicatesList', {

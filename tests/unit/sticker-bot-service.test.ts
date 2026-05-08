@@ -249,7 +249,7 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   );
   assert.match(
     (await service.handleMessage('missing arg', 'owner-a')).reply,
-    /^ARG: Missing \(18\): ARG 1, ARG 3, ARG 5/,
+    /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\)\nMissing \(18\): ARG 1, ARG 3, ARG 5/,
   );
 
   const progress = await service.handleMessage('progress', 'owner-a');
@@ -267,22 +267,22 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
 
   assert.equal(
     (await service.handleMessage('undo', 'owner-a')).reply,
-    'Undo applied: reverted the remove of ARG 4. You now have 1.',
+    'Undo applied: reverted the remove of ARG 4 - Cristian Romero. You now have 1.',
   );
   assert.equal(await repository.getQuantity('owner-a', ARG4), 1);
   assert.equal(
     (await service.handleMessage('undo', 'owner-a')).reply,
-    'Undo applied: reverted the add of ARG 4. You now have 0.',
+    'Undo applied: reverted the add of ARG 4 - Cristian Romero. You now have 0.',
   );
   assert.equal(await repository.getQuantity('owner-a', ARG4), 0);
   assert.equal(
     (await service.handleMessage('undo', 'owner-a')).reply,
-    'Undo applied: reverted the add of ARG 2. You now have 1.',
+    'Undo applied: reverted the add of ARG 2 - Emiliano Martinez. You now have 1.',
   );
   assert.equal(await repository.getQuantity('owner-a', ARG2), 1);
   assert.equal(
     (await service.handleMessage('undo', 'owner-a')).reply,
-    'Undo applied: reverted the add of ARG 2. You now have 0.',
+    'Undo applied: reverted the add of ARG 2 - Emiliano Martinez. You now have 0.',
   );
   assert.equal(await repository.getQuantity('owner-a', ARG2), 0);
   assert.equal((await service.handleMessage('undo', 'owner-a')).reply, 'There are no actions to undo.');
@@ -549,8 +549,8 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
   assert.equal(argWithNames.reply, [
     'Compare Alice Album with Bob Album from @collector_b.',
     'Country: ARG.',
-    '@collector_b can give you: ARG 10 - Lionel Messi x1.',
-    'You can give @collector_b: ARG 1 - Emiliano Martinez x1.',
+    '@collector_b can give you: ARG 10 - Rodrigo De Paul x1.',
+    'You can give @collector_b: ARG 1 x1.',
   ].join('\n'));
 
   assert.equal(
