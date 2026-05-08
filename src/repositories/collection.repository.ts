@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 
+import { getAlbumTemplate } from '../catalog/album-templates.catalog';
 import { stickerKey, type StickerRef } from '../catalog/world-cup.catalog';
 import type { BotLanguage } from '../i18n/bot.i18n';
 
@@ -45,7 +46,21 @@ export type ShareRequest = {
   respondedAt?: string;
 };
 
+export type CollectionSummary = {
+  id: string;
+  albumSlug: string;
+  name: string;
+  ownerId: string;
+  memberCount: number;
+  isActive: boolean;
+};
+
 type StoredCollection = {
+  albumSlug: string;
+  name: string;
+  ownerId: string;
+  members: string[];
+  createdAt: string;
   stickers: Record<string, number>;
   history: StickerHistoryEntry[];
 };
@@ -66,7 +81,19 @@ const createEmptyData = (): StoredData => ({
   shareRequests: {},
 });
 
-const createEmptyCollection = (): StoredCollection => ({
+const DEFAULT_ALBUM_SLUG = 'panini-fifa-world-cup-2026';
+
+const createEmptyCollection = (options: {
+  albumSlug: string;
+  name: string;
+  ownerId: string;
+  members?: string[];
+}): StoredCollection => ({
+  albumSlug: options.albumSlug,
+  name: options.name,
+  ownerId: options.ownerId,
+  members: options.members ?? [options.ownerId],
+  createdAt: new Date().toISOString(),
   stickers: {},
   history: [],
 });
@@ -146,6 +173,103 @@ export class CollectionRepository {
     return collection.stickers[stickerKey(sticker)] ?? 0;
   }
 
+  hasActiveAlbum(ownerId: string): boolean {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collectionId = data.ownerCollections[normalizedOwnerId];
+
+    return Boolean(collectionId && data.collections[collectionId]);
+  }
+
+  listAlbums(ownerId: string): CollectionSummary[] {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const activeCollectionId = data.ownerCollections[normalizedOwnerId];
+
+    return Object.entries(data.collections)
+      .filter(([, collection]) => collection.members.includes(normalizedOwnerId))
+      .map(([id, collection]) => ({
+        id,
+        albumSlug: collection.albumSlug,
+        name: collection.name,
+        ownerId: collection.ownerId,
+        memberCount: collection.members.length,
+        isActive: id === activeCollectionId,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  getActiveAlbum(ownerId: string): CollectionSummary | null {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collectionId = data.ownerCollections[normalizedOwnerId];
+    const collection = collectionId ? data.collections[collectionId] : undefined;
+
+    if (!collection) {
+      return null;
+    }
+
+    return {
+      id: collectionId,
+      albumSlug: collection.albumSlug,
+      name: collection.name,
+      ownerId: collection.ownerId,
+      memberCount: collection.members.length,
+      isActive: true,
+    };
+  }
+
+  createAlbum(ownerId: string, albumSlug: string): CollectionSummary | null {
+    const albumTemplate = getAlbumTemplate(albumSlug);
+
+    if (!albumTemplate) {
+      return null;
+    }
+
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collectionId = randomUUID();
+
+    data.collections[collectionId] = createEmptyCollection({
+      albumSlug: albumTemplate.slug,
+      name: albumTemplate.name,
+      ownerId: normalizedOwnerId,
+    });
+    data.ownerCollections[normalizedOwnerId] = collectionId;
+    this.writeData(data);
+
+    return {
+      id: collectionId,
+      albumSlug: albumTemplate.slug,
+      name: albumTemplate.name,
+      ownerId: normalizedOwnerId,
+      memberCount: 1,
+      isActive: true,
+    };
+  }
+
+  setActiveAlbum(ownerId: string, collectionId: string): CollectionSummary | null {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const collection = data.collections[collectionId];
+
+    if (!collection || !collection.members.includes(normalizedOwnerId)) {
+      return null;
+    }
+
+    data.ownerCollections[normalizedOwnerId] = collectionId;
+    this.writeData(data);
+
+    return {
+      id: collectionId,
+      albumSlug: collection.albumSlug,
+      name: collection.name,
+      ownerId: collection.ownerId,
+      memberCount: collection.members.length,
+      isActive: true,
+    };
+  }
+
   getStickerQuantities(ownerId: string): Record<string, number> {
     const data = this.readData();
     const collection = this.getOrCreateCollection(data, ownerId);
@@ -218,10 +342,16 @@ export class CollectionRepository {
       };
     }
 
-    const collectionId = this.getCollectionId(data, normalizedFromOwnerId);
-    const targetCollectionId = this.getCollectionId(data, toProfile.ownerId);
+    const collectionId = data.ownerCollections[normalizedFromOwnerId];
+    const targetCollectionId = data.ownerCollections[toProfile.ownerId];
 
-    if (collectionId === targetCollectionId) {
+    if (!collectionId || !data.collections[collectionId]) {
+      return {
+        error: 'No hay album activo.',
+      };
+    }
+
+    if (targetCollectionId && collectionId === targetCollectionId) {
       return {
         error: `Ya compartes album con @${normalizedTargetUsername}.`,
       };
@@ -281,12 +411,20 @@ export class CollectionRepository {
       return { error: 'Esta solicitud ya fue respondida.' };
     }
 
-    const targetCollectionId = this.getCollectionId(data, request.toOwnerId);
     const sourceCollection = this.getOrCreateCollectionById(data, request.collectionId);
-    const targetCollection = this.getOrCreateCollectionById(data, targetCollectionId);
+    const targetCollectionId = data.ownerCollections[request.toOwnerId];
+    const targetCollection = targetCollectionId
+      ? data.collections[targetCollectionId]
+      : undefined;
 
-    for (const [key, quantity] of Object.entries(targetCollection.stickers)) {
-      sourceCollection.stickers[key] = Math.max(sourceCollection.stickers[key] ?? 0, quantity);
+    if (targetCollection) {
+      for (const [key, quantity] of Object.entries(targetCollection.stickers)) {
+        sourceCollection.stickers[key] = Math.max(sourceCollection.stickers[key] ?? 0, quantity);
+      }
+    }
+
+    if (!sourceCollection.members.includes(request.toOwnerId)) {
+      sourceCollection.members.push(request.toOwnerId);
     }
 
     data.ownerCollections[request.toOwnerId] = request.collectionId;
@@ -366,7 +504,13 @@ export class CollectionRepository {
   }
 
   private getOrCreateCollectionById(data: StoredData, collectionId: string): StoredCollection {
-    data.collections[collectionId] ??= createEmptyCollection();
+    const albumTemplate = getAlbumTemplate(DEFAULT_ALBUM_SLUG);
+
+    data.collections[collectionId] ??= createEmptyCollection({
+      albumSlug: DEFAULT_ALBUM_SLUG,
+      name: albumTemplate?.name ?? 'Panini FIFA World Cup 2026',
+      ownerId: collectionId,
+    });
 
     return data.collections[collectionId];
   }
@@ -384,13 +528,35 @@ export class CollectionRepository {
   }
 
   private normalizeData(data: Partial<StoredData>): StoredData {
-    return {
+    const normalizedData: StoredData = {
       version: 1,
       collections: data.collections ?? {},
       ownerCollections: data.ownerCollections ?? {},
       profiles: data.profiles ?? {},
       shareRequests: data.shareRequests ?? {},
     };
+
+    const albumTemplate = getAlbumTemplate(DEFAULT_ALBUM_SLUG);
+
+    for (const [collectionId, collection] of Object.entries(normalizedData.collections)) {
+      collection.albumSlug ??= DEFAULT_ALBUM_SLUG;
+      collection.name ??= albumTemplate?.name ?? 'Panini FIFA World Cup 2026';
+      collection.ownerId ??= collectionId;
+      collection.members ??= [collection.ownerId];
+      collection.createdAt ??= new Date().toISOString();
+      collection.stickers ??= {};
+      collection.history ??= [];
+    }
+
+    for (const [ownerId, collectionId] of Object.entries(normalizedData.ownerCollections)) {
+      const collection = normalizedData.collections[collectionId];
+
+      if (collection && !collection.members.includes(ownerId)) {
+        collection.members.push(ownerId);
+      }
+    }
+
+    return normalizedData;
   }
 
   private setStoredQuantity(collection: StoredCollection, key: string, quantity: number): void {

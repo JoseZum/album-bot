@@ -1,4 +1,8 @@
 import {
+  AVAILABLE_ALBUM_TEMPLATES,
+  getAlbumTemplate,
+} from '../catalog/album-templates.catalog';
+import {
   WORLD_CUP_CATALOG,
   formatSticker,
   getAllStickerRefs,
@@ -78,10 +82,27 @@ export class StickerBotService {
       };
     }
 
-    if (/^\/?(language|idioma|lang)$/i.test(text.trim())) {
+    if (parsed.intent === 'language') {
       return {
         parsed,
         ...this.languageSelectionReply(),
+      };
+    }
+
+    if (parsed.intent === 'start') {
+      return {
+        parsed,
+        ...this.startMenuReply(ownerId, language),
+      };
+    }
+
+    if (this.requiresActiveAlbum(parsed) && !this.repository.hasActiveAlbum(ownerId)) {
+      const menu = this.startMenuReply(ownerId, language);
+
+      return {
+        parsed,
+        reply: `${t(language, 'commandRequiresActiveAlbum')}\n\n${menu.reply}`,
+        replyMarkup: menu.replyMarkup,
       };
     }
 
@@ -106,9 +127,40 @@ export class StickerBotService {
       }
 
       this.repository.setLanguage(ownerId, language);
+      const menu = this.startMenuReply(ownerId, language);
 
       return {
-        reply: `${t(language, 'languageSaved')}\n\n${t(language, 'help')}`,
+        reply: `${t(language, 'languageSaved')}\n\n${menu.reply}`,
+        replyMarkup: menu.replyMarkup,
+      };
+    }
+
+    const albumMatch = /^album:(create|select):(.+)$/.exec(callbackData);
+
+    if (albumMatch) {
+      const [, action, value] = albumMatch;
+      const language = this.getLanguage(ownerId) ?? 'en';
+
+      if (action === 'create') {
+        const album = this.repository.createAlbum(ownerId, value);
+
+        if (!album) {
+          return { reply: t(language, 'unknownAlbumAction') };
+        }
+
+        return {
+          reply: t(language, 'albumCreated', { albumName: album.name }),
+        };
+      }
+
+      const album = this.repository.setActiveAlbum(ownerId, value);
+
+      if (!album) {
+        return { reply: t(language, 'unknownAlbumAction') };
+      }
+
+      return {
+        reply: t(language, 'albumSelected', { albumName: album.name }),
       };
     }
 
@@ -186,6 +238,10 @@ export class StickerBotService {
         return this.showProgress(ownerId, language);
       case 'share':
         return this.shareAlbum(ownerId, parsed.targetUsername, language).reply;
+      case 'start':
+        return this.startMenuReply(ownerId, language).reply;
+      case 'language':
+        return this.languageSelectionReply().reply;
       case 'undo':
         return this.undoLast(ownerId, language);
       case 'help':
@@ -534,6 +590,67 @@ export class StickerBotService {
       reply: t('en', 'chooseLanguage'),
       replyMarkup: languageKeyboard,
     };
+  }
+
+  private startMenuReply(ownerId: string, language: BotLanguage): BotActionResult {
+    const activeAlbum = this.repository.getActiveAlbum(ownerId);
+    const userAlbums = this.repository.listAlbums(ownerId);
+    const lines = [
+      t(language, 'startMenu'),
+      activeAlbum
+        ? t(language, 'activeAlbumLine', { albumName: activeAlbum.name })
+        : t(language, 'noActiveAlbum'),
+    ];
+
+    if (userAlbums.length > 0) {
+      lines.push('');
+      lines.push(t(language, 'yourAlbumsTitle'));
+      lines.push(
+        ...userAlbums.map((album) =>
+          `${album.isActive ? '*' : '-'} ${album.name} (${album.memberCount})`,
+        ),
+      );
+    }
+
+    lines.push('');
+    lines.push(t(language, 'availableAlbumsTitle'));
+    lines.push(...AVAILABLE_ALBUM_TEMPLATES.map((albumTemplate) => `- ${albumTemplate.name}`));
+
+    const albumRows = [
+      ...AVAILABLE_ALBUM_TEMPLATES.map((albumTemplate) => [
+        {
+          text: `${t(language, 'buttonCreateAlbum')} - ${albumTemplate.name}`,
+          callback_data: `album:create:${albumTemplate.slug}`,
+        },
+      ]),
+      ...userAlbums.map((album) => [
+        {
+          text: `${t(language, 'buttonSelectAlbum')} - ${album.name}`,
+          callback_data: `album:select:${album.id}`,
+        },
+      ]),
+    ];
+
+    return {
+      reply: lines.join('\n'),
+      replyMarkup: {
+        inline_keyboard: albumRows,
+      },
+    };
+  }
+
+  private requiresActiveAlbum(parsed: ParsedBotMessage): boolean {
+    return [
+      'querySticker',
+      'queryCountry',
+      'addSticker',
+      'removeSticker',
+      'missing',
+      'duplicates',
+      'progress',
+      'share',
+      'undo',
+    ].includes(parsed.intent);
   }
 
   private translateParseError(reason: string, language: BotLanguage): string {

@@ -7,7 +7,18 @@ type TranslationKey =
   | 'languageSaved'
   | 'buttonYes'
   | 'buttonNo'
+  | 'buttonCreateAlbum'
+  | 'buttonSelectAlbum'
   | 'unknownCallback'
+  | 'startMenu'
+  | 'activeAlbumLine'
+  | 'noActiveAlbum'
+  | 'yourAlbumsTitle'
+  | 'availableAlbumsTitle'
+  | 'albumCreated'
+  | 'albumSelected'
+  | 'commandRequiresActiveAlbum'
+  | 'unknownAlbumAction'
   | 'emptyMessage'
   | 'unknownCommand'
   | 'stickerRequired'
@@ -57,7 +68,18 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     languageSaved: 'Language set to English.',
     buttonYes: 'Yes',
     buttonNo: 'No',
+    buttonCreateAlbum: 'Create',
+    buttonSelectAlbum: 'Use',
     unknownCallback: 'Invalid action.',
+    startMenu: 'Album menu',
+    activeAlbumLine: 'Active album: {albumName}.',
+    noActiveAlbum: 'No active album yet.',
+    yourAlbumsTitle: 'Your albums:',
+    availableAlbumsTitle: 'Available albums:',
+    albumCreated: 'Album created and selected: {albumName}.',
+    albumSelected: 'Active album selected: {albumName}.',
+    commandRequiresActiveAlbum: 'Create or select an album first.',
+    unknownAlbumAction: 'Album action not found.',
     emptyMessage: 'Empty message.',
     unknownCommand: 'I could not detect a country, number, or command.',
     stickerRequired: 'Send a sticker, for example: add arg4.',
@@ -108,6 +130,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       'rm arg4 or remove arg 4: remove a sticker.',
       'undo: revert the last change.',
       'share @username: request sharing the same album with another Telegram user.',
+      'start: create or select an album.',
       'missing arg, duplicates, progress.',
     ].join('\n'),
   },
@@ -116,7 +139,18 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     languageSaved: 'Idioma configurado en español.',
     buttonYes: 'Si',
     buttonNo: 'No',
+    buttonCreateAlbum: 'Crear',
+    buttonSelectAlbum: 'Usar',
     unknownCallback: 'Accion invalida.',
+    startMenu: 'Menu de albumes',
+    activeAlbumLine: 'Album activo: {albumName}.',
+    noActiveAlbum: 'Todavia no hay album activo.',
+    yourAlbumsTitle: 'Tus albumes:',
+    availableAlbumsTitle: 'Albumes disponibles:',
+    albumCreated: 'Album creado y seleccionado: {albumName}.',
+    albumSelected: 'Album activo seleccionado: {albumName}.',
+    commandRequiresActiveAlbum: 'Primero crea o selecciona un album.',
+    unknownAlbumAction: 'Accion de album no encontrada.',
     emptyMessage: 'Mensaje vacio.',
     unknownCommand: 'No pude detectar pais, numero o comando.',
     stickerRequired: 'Indica una estampa, por ejemplo: add arg4.',
@@ -167,6 +201,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       'rm arg4 o remove arg 4: elimina una estampa.',
       'undo: revierte el ultimo cambio.',
       'share @usuario: solicita compartir el mismo album con otro usuario de Telegram.',
+      'start: crea o selecciona un album.',
       'missing arg, duplicates, progress.',
     ].join('\n'),
   },
@@ -175,7 +210,18 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     languageSaved: '语言已设置为中文。',
     buttonYes: '是',
     buttonNo: '否',
+    buttonCreateAlbum: '创建',
+    buttonSelectAlbum: '使用',
     unknownCallback: '无效操作。',
+    startMenu: '相册菜单',
+    activeAlbumLine: '当前相册：{albumName}。',
+    noActiveAlbum: '还没有当前相册。',
+    yourAlbumsTitle: '你的相册：',
+    availableAlbumsTitle: '可用相册：',
+    albumCreated: '已创建并选择相册：{albumName}。',
+    albumSelected: '已选择当前相册：{albumName}。',
+    commandRequiresActiveAlbum: '请先创建或选择一个相册。',
+    unknownAlbumAction: '找不到相册操作。',
     emptyMessage: '消息为空。',
     unknownCommand: '我无法识别国家、编号或命令。',
     stickerRequired: '请发送一张贴纸，例如：add arg4。',
@@ -226,6 +272,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       'rm arg4 或 remove arg 4：删除贴纸。',
       'undo：撤销最后一次更改。',
       'share @username：请求与另一个 Telegram 用户共享同一个相册。',
+      'start：创建或选择相册。',
       'missing arg、duplicates、progress。',
     ].join('\n'),
   },

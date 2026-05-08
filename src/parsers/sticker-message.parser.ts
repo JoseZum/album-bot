@@ -15,6 +15,8 @@ export type ParsedBotMessage =
   | { intent: 'duplicates'; countryCode?: string; showNames: boolean }
   | { intent: 'progress'; showNames: boolean }
   | { intent: 'share'; targetUsername: string; showNames: boolean }
+  | { intent: 'start'; showNames: boolean }
+  | { intent: 'language'; showNames: boolean }
   | { intent: 'undo'; showNames: boolean }
   | { intent: 'help'; showNames: boolean }
   | { intent: 'unknown'; reason: string; showNames: boolean };
@@ -25,6 +27,8 @@ type LeadingIntent =
   | 'missing'
   | 'duplicates'
   | 'progress'
+  | 'start'
+  | 'language'
   | 'undo'
   | 'help';
 
@@ -33,8 +37,10 @@ const REMOVE_ALIASES = new Set(['remove', 'rm', 'remover', 'eliminar', 'elimina'
 const MISSING_ALIASES = new Set(['missing', 'faltantes', 'faltante', 'falta']);
 const DUPLICATES_ALIASES = new Set(['duplicates', 'duplicadas', 'duplicados', 'dups', 'repetidas', 'repetidos']);
 const PROGRESS_ALIASES = new Set(['progress', 'progreso', 'avance', 'stats', 'estadisticas']);
+const START_ALIASES = new Set(['start', 'menu', 'album', 'albums', 'albumes']);
+const LANGUAGE_ALIASES = new Set(['language', 'lang', 'idioma']);
 const UNDO_ALIASES = new Set(['undo', 'deshacer']);
-const HELP_ALIASES = new Set(['help', 'ayuda', 'start']);
+const HELP_ALIASES = new Set(['help', 'ayuda']);
 
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -79,6 +85,14 @@ const extractLeadingIntent = (
 
   if (PROGRESS_ALIASES.has(firstToken)) {
     return { intent: 'progress', remainder };
+  }
+
+  if (START_ALIASES.has(firstToken)) {
+    return { intent: 'start', remainder };
+  }
+
+  if (LANGUAGE_ALIASES.has(firstToken)) {
+    return { intent: 'language', remainder };
   }
 
   if (UNDO_ALIASES.has(firstToken)) {
@@ -159,7 +173,13 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
 
   const { intent, remainder } = extractLeadingIntent(normalizedText);
 
-  if (intent === 'undo' || intent === 'progress' || intent === 'help') {
+  if (
+    intent === 'undo'
+    || intent === 'progress'
+    || intent === 'help'
+    || intent === 'start'
+    || intent === 'language'
+  ) {
     return { intent, showNames };
   }
 
