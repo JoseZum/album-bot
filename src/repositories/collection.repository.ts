@@ -3,6 +3,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 
 import { stickerKey, type StickerRef } from '../catalog/world-cup.catalog';
+import type { BotLanguage } from '../i18n/bot.i18n';
 
 export type StickerHistoryAction = 'add' | 'remove';
 
@@ -27,6 +28,7 @@ export type StoredProfile = {
   firstName?: string;
   lastName?: string;
   displayName?: string;
+  language?: BotLanguage;
   updatedAt: string;
 };
 
@@ -77,6 +79,7 @@ export class CollectionRepository {
     username?: string;
     firstName?: string;
     lastName?: string;
+    language?: BotLanguage;
   }): StoredProfile {
     const data = this.readData();
     const ownerId = this.normalizeOwnerId(profile.ownerId);
@@ -91,6 +94,7 @@ export class CollectionRepository {
       firstName: profile.firstName ?? previousProfile?.firstName,
       lastName: profile.lastName ?? previousProfile?.lastName,
       displayName,
+      language: profile.language ?? previousProfile?.language,
       updatedAt: new Date().toISOString(),
     };
 
@@ -112,6 +116,27 @@ export class CollectionRepository {
     const data = this.readData();
 
     return Object.values(data.profiles).find((profile) => profile.username === normalizedUsername);
+  }
+
+  setLanguage(ownerId: string, language: BotLanguage): StoredProfile {
+    const data = this.readData();
+    const normalizedOwnerId = this.normalizeOwnerId(ownerId);
+    const previousProfile = data.profiles[normalizedOwnerId];
+    const profile: StoredProfile = {
+      ownerId: normalizedOwnerId,
+      username: previousProfile?.username,
+      firstName: previousProfile?.firstName,
+      lastName: previousProfile?.lastName,
+      displayName: previousProfile?.displayName ?? normalizedOwnerId,
+      language,
+      updatedAt: new Date().toISOString(),
+    };
+
+    data.profiles[normalizedOwnerId] = profile;
+    this.getOrCreateCollection(data, normalizedOwnerId);
+    this.writeData(data);
+
+    return profile;
   }
 
   getQuantity(ownerId: string, sticker: StickerRef): number {

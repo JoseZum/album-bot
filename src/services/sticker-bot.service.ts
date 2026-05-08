@@ -12,6 +12,12 @@ import {
 } from '../catalog/world-cup.catalog';
 import { AddStickerCommand } from '../commands/add-sticker-command';
 import { RemoveStickerCommand } from '../commands/remove-sticker-command';
+import {
+  isBotLanguage,
+  languageKeyboard,
+  t,
+  type BotLanguage,
+} from '../i18n/bot.i18n';
 import { parseStickerMessage, type ParsedBotMessage } from '../parsers/sticker-message.parser';
 import {
   collectionRepository,
@@ -23,11 +29,13 @@ import {
 export type BotMessageResult = {
   reply: string;
   parsed: ParsedBotMessage;
+  replyMarkup?: unknown;
   outboundMessages?: BotOutboundMessage[];
 };
 
 export type BotActionResult = {
   reply: string;
+  replyMarkup?: unknown;
   outboundMessages?: BotOutboundMessage[];
 };
 
@@ -46,18 +54,6 @@ type CountryStats = {
   percentage: string;
 };
 
-const HELP_TEXT = [
-  'Comandos disponibles:',
-  'arg4, arg 4, ARG-4 o argentina 4: consulta una estampa.',
-  'arg: muestra progreso del pais.',
-  'arg -name: muestra nombres cuando existan en el catalogo.',
-  'add arg4: agrega una estampa.',
-  'rm arg4 o remove arg 4: elimina una estampa.',
-  'undo: revierte el ultimo cambio.',
-  'share @usuario: solicita compartir el mismo album con otro usuario de Telegram.',
-  'missing arg, duplicates, progress.',
-].join('\n');
-
 export class StickerBotService {
   constructor(private readonly repository: CollectionRepository = collectionRepository) {}
 
@@ -66,15 +62,32 @@ export class StickerBotService {
     username?: string;
     firstName?: string;
     lastName?: string;
+    language?: BotLanguage;
   }): void {
     this.repository.registerProfile(profile);
   }
 
   handleMessage(text: string, ownerId = 'default'): BotMessageResult {
+    const language = this.getLanguage(ownerId);
     const parsed = parseStickerMessage(text);
+
+    if (!language) {
+      return {
+        parsed,
+        ...this.languageSelectionReply(),
+      };
+    }
+
+    if (/^\/?(language|idioma|lang)$/i.test(text.trim())) {
+      return {
+        parsed,
+        ...this.languageSelectionReply(),
+      };
+    }
+
     const result = parsed.intent === 'share'
-      ? this.shareAlbum(ownerId, parsed.targetUsername)
-      : { reply: this.buildReply(parsed, ownerId) };
+      ? this.shareAlbum(ownerId, parsed.targetUsername, language)
+      : { reply: this.buildReply(parsed, ownerId, language) };
 
     return {
       parsed,
@@ -82,11 +95,32 @@ export class StickerBotService {
     };
   }
 
+  handleCallbackData(callbackData: string, ownerId: string): BotActionResult {
+    const languageMatch = /^lang:(.+)$/.exec(callbackData);
+
+    if (languageMatch) {
+      const language = languageMatch[1];
+
+      if (!isBotLanguage(language)) {
+        return { reply: t(this.getLanguage(ownerId) ?? 'en', 'unknownCallback') };
+      }
+
+      this.repository.setLanguage(ownerId, language);
+
+      return {
+        reply: `${t(language, 'languageSaved')}\n\n${t(language, 'help')}`,
+      };
+    }
+
+    return this.handleShareResponse(callbackData, ownerId);
+  }
+
   handleShareResponse(callbackData: string, ownerId: string): BotActionResult {
+    const language = this.getLanguage(ownerId) ?? 'en';
     const match = /^share:(accept|decline):(.+)$/.exec(callbackData);
 
     if (!match) {
-      return { reply: 'Respuesta de compartir album invalida.' };
+      return { reply: t(language, 'shareInvalid') };
     }
 
     const [, action, requestId] = match;
@@ -95,18 +129,19 @@ export class StickerBotService {
       const result = this.repository.acceptShareRequest(requestId, ownerId);
 
       if (result.error || !result.request) {
-        return { reply: result.error ?? 'No pude aceptar la solicitud.' };
+        return { reply: this.translateShareRepositoryError(result.error, language) ?? t(language, 'shareAcceptError') };
       }
 
       const responderProfile = this.repository.getProfile(ownerId);
       const responderName = responderProfile?.displayName ?? ownerId;
+      const inviterLanguage = this.getLanguage(result.request.fromOwnerId) ?? language;
 
       return {
-        reply: 'Yes. Ahora compartes el mismo album.',
+        reply: t(language, 'shareAccepted'),
         outboundMessages: [
           {
             chatId: result.request.fromOwnerId,
-            text: `${responderName} acepto compartir el album contigo.`,
+            text: t(inviterLanguage, 'shareAcceptedNotify', { responderName }),
           },
         ],
       };
@@ -115,52 +150,58 @@ export class StickerBotService {
     const result = this.repository.declineShareRequest(requestId, ownerId);
 
     if (result.error || !result.request) {
-      return { reply: result.error ?? 'No pude rechazar la solicitud.' };
+      return { reply: this.translateShareRepositoryError(result.error, language) ?? t(language, 'shareDeclineError') };
     }
 
     const responderProfile = this.repository.getProfile(ownerId);
     const responderName = responderProfile?.displayName ?? ownerId;
+    const inviterLanguage = this.getLanguage(result.request.fromOwnerId) ?? language;
 
     return {
-      reply: 'No. Solicitud rechazada.',
+      reply: t(language, 'shareDeclined'),
       outboundMessages: [
         {
           chatId: result.request.fromOwnerId,
-          text: `${responderName} rechazo compartir el album.`,
+          text: t(inviterLanguage, 'shareDeclinedNotify', { responderName }),
         },
       ],
     };
   }
 
-  private buildReply(parsed: ParsedBotMessage, ownerId: string): string {
+  private buildReply(parsed: ParsedBotMessage, ownerId: string, language: BotLanguage): string {
     switch (parsed.intent) {
       case 'querySticker':
-        return this.querySticker(ownerId, parsed.sticker, parsed.showNames);
+        return this.querySticker(ownerId, parsed.sticker, parsed.showNames, language);
       case 'queryCountry':
-        return this.queryCountry(ownerId, parsed.countryCode, parsed.showNames);
+        return this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language);
       case 'addSticker':
-        return this.addSticker(ownerId, parsed.sticker, parsed.showNames);
+        return this.addSticker(ownerId, parsed.sticker, parsed.showNames, language);
       case 'removeSticker':
-        return this.removeSticker(ownerId, parsed.sticker, parsed.showNames);
+        return this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language);
       case 'missing':
-        return this.showMissing(ownerId, parsed.countryCode, parsed.showNames);
+        return this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language);
       case 'duplicates':
-        return this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames);
+        return this.showDuplicates(ownerId, parsed.countryCode, parsed.showNames, language);
       case 'progress':
-        return this.showProgress(ownerId);
+        return this.showProgress(ownerId, language);
       case 'share':
-        return this.shareAlbum(ownerId, parsed.targetUsername).reply;
+        return this.shareAlbum(ownerId, parsed.targetUsername, language).reply;
       case 'undo':
-        return this.undoLast(ownerId);
+        return this.undoLast(ownerId, language);
       case 'help':
-        return HELP_TEXT;
+        return t(language, 'help');
       case 'unknown':
-        return `${parsed.reason}\n\n${HELP_TEXT}`;
+        return `${this.translateParseError(parsed.reason, language)}\n\n${t(language, 'help')}`;
     }
   }
 
-  private querySticker(ownerId: string, sticker: StickerRef, showNames: boolean): string {
-    const validationMessage = this.validateSticker(sticker);
+  private querySticker(
+    ownerId: string,
+    sticker: StickerRef,
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
+    const validationMessage = this.validateSticker(sticker, language);
 
     if (validationMessage) {
       return validationMessage;
@@ -170,37 +211,59 @@ export class StickerBotService {
     const label = formatSticker(sticker, { includeName: showNames });
 
     if (quantity <= 0) {
-      return `No tienes ${label}.`;
+      return t(language, 'stickerNotOwned', { label });
     }
 
-    return `Si tienes ${label}. Cantidad: ${quantity}.`;
+    return t(language, 'stickerOwned', { label, quantity });
   }
 
-  private queryCountry(ownerId: string, countryCode: string, showNames: boolean): string {
+  private queryCountry(
+    ownerId: string,
+    countryCode: string,
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
     const stats = this.getCountryStats(ownerId, countryCode);
 
     if (!stats) {
-      return `No reconozco el pais ${countryCode}.`;
+      return t(language, 'unknownCountry', { country: countryCode });
     }
 
     const lines = [
-      `${stats.countryCode} ${stats.countryName}`,
-      `Tienes ${stats.owned.length}/${stats.total} (${stats.percentage}).`,
+      t(language, 'countryHeader', {
+        countryCode: stats.countryCode,
+        countryName: stats.countryName,
+      }),
+      t(language, 'countryProgress', {
+        owned: stats.owned.length,
+        total: stats.total,
+        percentage: stats.percentage,
+      }),
     ];
 
     if (stats.owned.length > 0) {
-      lines.push(`Estampas: ${this.formatStickerList(stats.owned, showNames)}.`);
+      lines.push(t(language, 'ownedStickers', {
+        stickers: this.formatStickerList(stats.owned, showNames, language),
+      }));
     } else {
-      lines.push(`No tienes estampas de ${stats.countryCode}.`);
+      lines.push(t(language, 'noCountryStickers', { countryCode: stats.countryCode }));
     }
 
-    lines.push(`Faltantes (${stats.missing.length}): ${this.formatStickerList(stats.missing, showNames)}.`);
+    lines.push(t(language, 'missingStickers', {
+      count: stats.missing.length,
+      stickers: this.formatStickerList(stats.missing, showNames, language),
+    }));
 
     return lines.join('\n');
   }
 
-  private addSticker(ownerId: string, sticker: StickerRef, showNames: boolean): string {
-    const validationMessage = this.validateSticker(sticker);
+  private addSticker(
+    ownerId: string,
+    sticker: StickerRef,
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
+    const validationMessage = this.validateSticker(sticker, language);
 
     if (validationMessage) {
       return validationMessage;
@@ -212,13 +275,24 @@ export class StickerBotService {
     this.recordHistory(ownerId, 'add', result);
 
     const label = formatSticker(sticker, { includeName: showNames });
-    const duplicateText = result.currentQuantity > 1 ? ` (${result.currentQuantity - 1} duplicada/s)` : '';
+    const duplicateText = result.currentQuantity > 1
+      ? ` (${result.currentQuantity - 1} duplicates)`
+      : '';
 
-    return `${label} agregada. Ahora tienes ${result.currentQuantity}${duplicateText}.`;
+    return t(language, 'stickerAdded', {
+      label,
+      quantity: result.currentQuantity,
+      duplicateText,
+    });
   }
 
-  private removeSticker(ownerId: string, sticker: StickerRef, showNames: boolean): string {
-    const validationMessage = this.validateSticker(sticker);
+  private removeSticker(
+    ownerId: string,
+    sticker: StickerRef,
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
+    const validationMessage = this.validateSticker(sticker, language);
 
     if (validationMessage) {
       return validationMessage;
@@ -229,46 +303,66 @@ export class StickerBotService {
     const label = formatSticker(sticker, { includeName: showNames });
 
     if (!result.changed) {
-      return `No puedes eliminar ${label} porque no la tienes.`;
+      return t(language, 'cannotRemove', { label });
     }
 
     this.recordHistory(ownerId, 'remove', result);
 
-    return `${label} eliminada. Ahora tienes ${result.currentQuantity}.`;
+    return t(language, 'stickerRemoved', {
+      label,
+      quantity: result.currentQuantity,
+    });
   }
 
-  private undoLast(ownerId: string): string {
+  private undoLast(ownerId: string, language: BotLanguage): string {
     const entry = this.repository.undoLast(ownerId);
 
     if (!entry) {
-      return 'No hay acciones para deshacer.';
+      return t(language, 'nothingToUndo');
     }
 
     const label = formatSticker(entry.sticker, { includeName: true });
-    const actionText = entry.action === 'add' ? 'agregado' : 'eliminacion';
+    const actionText = entry.action === 'add' ? 'add' : 'remove';
 
-    return `Undo aplicado: se revirtio el ${actionText} de ${label}. Ahora tienes ${entry.previousQuantity}.`;
+    return t(language, 'undoApplied', {
+      action: actionText,
+      label,
+      quantity: entry.previousQuantity,
+    });
   }
 
-  private showMissing(ownerId: string, countryCode: string | undefined, showNames: boolean): string {
+  private showMissing(
+    ownerId: string,
+    countryCode: string | undefined,
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
     if (!countryCode) {
-      return 'Indica un pais para ver faltantes, por ejemplo: missing arg.';
+      return t(language, 'missingNeedsCountry');
     }
 
     const stats = this.getCountryStats(ownerId, countryCode);
 
     if (!stats) {
-      return `No reconozco el pais ${countryCode}.`;
+      return t(language, 'unknownCountry', { country: countryCode });
     }
 
     if (stats.missing.length === 0) {
-      return `${stats.countryCode} esta completo.`;
+      return t(language, 'countryComplete', { countryCode: stats.countryCode });
     }
 
-    return `Faltantes de ${stats.countryCode} (${stats.missing.length}): ${this.formatStickerList(stats.missing, showNames)}.`;
+    return `${stats.countryCode}: ${t(language, 'missingStickers', {
+      count: stats.missing.length,
+      stickers: this.formatStickerList(stats.missing, showNames, language),
+    })}`;
   }
 
-  private showDuplicates(ownerId: string, countryCode: string | undefined, showNames: boolean): string {
+  private showDuplicates(
+    ownerId: string,
+    countryCode: string | undefined,
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
     const duplicates = Object.entries(this.repository.getStickerQuantities(ownerId))
       .map(([key, quantity]) => ({
         sticker: stickerFromKey(key),
@@ -281,8 +375,8 @@ export class StickerBotService {
 
     if (duplicates.length === 0) {
       return countryCode
-        ? `No tienes duplicadas de ${countryCode}.`
-        : 'No tienes estampas duplicadas.';
+        ? t(language, 'duplicatesCountryNone', { countryCode })
+        : t(language, 'duplicatesNone');
     }
 
     const formatted = duplicates
@@ -290,10 +384,10 @@ export class StickerBotService {
       .map((entry) => `${formatSticker(entry.sticker, { includeName: showNames })} x${entry.quantity}`)
       .join(', ');
 
-    return `Duplicadas: ${formatted}.`;
+    return t(language, 'duplicatesList', { stickers: formatted });
   }
 
-  private showProgress(ownerId: string): string {
+  private showProgress(ownerId: string, language: BotLanguage): string {
     const quantities = this.repository.getStickerQuantities(ownerId);
     const knownEntries = Object.entries(quantities)
       .map(([key, quantity]) => ({
@@ -309,29 +403,44 @@ export class StickerBotService {
     const total = getCatalogTotal();
 
     return [
-      'Progreso general',
-      `Tienes ${uniqueOwned}/${total} unicas (${this.formatPercentage(uniqueOwned, total)}).`,
-      `Duplicadas: ${duplicates}.`,
-      `Paises iniciados: ${countriesStarted}/${WORLD_CUP_CATALOG.length}.`,
+      t(language, 'generalProgressTitle'),
+      t(language, 'generalProgressOwned', {
+        owned: uniqueOwned,
+        total,
+        percentage: this.formatPercentage(uniqueOwned, total),
+      }),
+      t(language, 'generalProgressDuplicates', { duplicates }),
+      t(language, 'generalProgressCountries', {
+        countriesStarted,
+        countriesTotal: WORLD_CUP_CATALOG.length,
+      }),
     ].join('\n');
   }
 
-  private shareAlbum(ownerId: string, targetUsername: string): BotActionResult {
+  private shareAlbum(
+    ownerId: string,
+    targetUsername: string,
+    language: BotLanguage,
+  ): BotActionResult {
     const result = this.repository.createShareRequest(ownerId, targetUsername);
 
     if (result.error || !result.request) {
-      return { reply: result.error ?? 'No pude crear la solicitud.' };
+      return {
+        reply: this.translateShareRepositoryError(result.error, language)
+          ?? t(language, 'shareAcceptError'),
+      };
     }
 
     const fromProfile = this.repository.getProfile(ownerId);
     const inviterName = fromProfile?.displayName ?? ownerId;
+    const recipientLanguage = this.getLanguage(result.request.toOwnerId) ?? language;
 
     return {
-      reply: `Solicitud enviada a @${targetUsername}.`,
+      reply: t(language, 'shareSent', { username: targetUsername }),
       outboundMessages: [
         {
           chatId: result.request.toOwnerId,
-          text: `${inviterName} quiere compartir su album contigo.\n\nYes or No?`,
+          text: t(recipientLanguage, 'shareInvite', { inviterName }),
           replyMarkup: {
             inline_keyboard: [
               [
@@ -373,9 +482,13 @@ export class StickerBotService {
     };
   }
 
-  private formatStickerList(stickers: StickerRef[], showNames: boolean): string {
+  private formatStickerList(
+    stickers: StickerRef[],
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
     if (stickers.length === 0) {
-      return 'ninguna';
+      return language === 'en' ? 'none' : language === 'zh' ? '无' : 'ninguna';
     }
 
     return sortStickers(stickers)
@@ -394,18 +507,79 @@ export class StickerBotService {
     return `${formatted}%`;
   }
 
-  private validateSticker(sticker: StickerRef): string | null {
+  private validateSticker(sticker: StickerRef, language: BotLanguage): string | null {
     const country = getCatalogEntry(sticker.countryCode);
 
     if (!country) {
-      return `No reconozco el pais ${sticker.countryCode}.`;
+      return t(language, 'unknownCountry', { country: sticker.countryCode });
     }
 
     if (sticker.number < 1 || sticker.number > country.totalStickers) {
-      return `${formatSticker(sticker)} no existe en el catalogo. ${country.code} va del 1 al ${country.totalStickers}.`;
+      return t(language, 'invalidStickerNumber', {
+        label: formatSticker(sticker),
+        countryCode: country.code,
+        total: country.totalStickers,
+      });
     }
 
     return null;
+  }
+
+  private getLanguage(ownerId: string): BotLanguage | undefined {
+    return this.repository.getProfile(ownerId)?.language;
+  }
+
+  private languageSelectionReply(): BotActionResult {
+    return {
+      reply: t('en', 'chooseLanguage'),
+      replyMarkup: languageKeyboard,
+    };
+  }
+
+  private translateParseError(reason: string, language: BotLanguage): string {
+    if (reason === 'Mensaje vacio.') {
+      return t(language, 'emptyMessage');
+    }
+
+    if (reason === 'Indica una estampa, por ejemplo: add arg4.') {
+      return t(language, 'stickerRequired');
+    }
+
+    return t(language, 'unknownCommand');
+  }
+
+  private translateShareRepositoryError(
+    error: string | undefined,
+    language: BotLanguage,
+  ): string | undefined {
+    if (!error) {
+      return undefined;
+    }
+
+    const unknownUserMatch = /^No conozco a @(.+)\./.exec(error);
+    const alreadySharedMatch = /^Ya compartes album con @(.+)\./.exec(error);
+
+    if (unknownUserMatch) {
+      return t(language, 'shareUnknownUser', { username: unknownUserMatch[1] });
+    }
+
+    if (alreadySharedMatch) {
+      return t(language, 'shareAlreadyShared', { username: alreadySharedMatch[1] });
+    }
+
+    if (error === 'No puedes compartir el album contigo mismo.') {
+      return t(language, 'shareSelf');
+    }
+
+    if (error === 'Solicitud de album compartido no encontrada.') {
+      return t(language, 'shareRequestNotFound');
+    }
+
+    if (error === 'Esta solicitud ya fue respondida.') {
+      return t(language, 'shareAlreadyAnswered');
+    }
+
+    return error;
   }
 
   private recordHistory(

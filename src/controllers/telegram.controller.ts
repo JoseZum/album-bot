@@ -59,9 +59,11 @@ const postTelegramWebhook = async (
         lastName: callbackQuery.from?.last_name,
       });
 
-      const result = stickerBotService.handleShareResponse(callbackQuery.data, String(chatId));
+      const result = stickerBotService.handleCallbackData(callbackQuery.data, String(chatId));
       await telegramService.answerCallbackQuery(callbackQuery.id);
-      const sendResult = await telegramService.sendMessage(chatId, result.reply);
+      const sendResult = await telegramService.sendMessage(chatId, result.reply, {
+        replyMarkup: result.replyMarkup,
+      });
       const outboundResults = [];
 
       for (const outboundMessage of result.outboundMessages ?? []) {
@@ -99,7 +101,9 @@ const postTelegramWebhook = async (
     });
 
     const result = stickerBotService.handleMessage(message.text, String(chatId));
-    const sendResult = await telegramService.sendMessage(chatId, result.reply);
+    const sendResult = await telegramService.sendMessage(chatId, result.reply, {
+      replyMarkup: result.replyMarkup,
+    });
     const outboundResults = [];
 
     for (const outboundMessage of result.outboundMessages ?? []) {
