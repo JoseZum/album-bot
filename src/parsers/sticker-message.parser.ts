@@ -14,6 +14,7 @@ export type ParsedBotMessage =
   | { intent: 'querySticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'queryCountry'; countryCode: string; showNames: boolean }
   | { intent: 'addSticker'; sticker: StickerRef; showNames: boolean }
+  | { intent: 'addStickers'; stickers: StickerRef[]; invalidInputs: string[]; showNames: boolean }
   | { intent: 'removeSticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'tradeCreate'; give: TradeSelector; want: TradeSelector; showNames: boolean }
   | { intent: 'tradeListMine'; showNames: boolean }
@@ -192,6 +193,73 @@ const parseStickerRefFromTokens = (
   }
 
   return null;
+};
+
+const parseStickerSequence = (input: string): StickerRef[] | null => {
+  const cleaned = normalizeForParsing(input)
+    .replace(/[#:]/g, ' ')
+    .replace(/\s*-\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const stickers: StickerRef[] = [];
+  let index = 0;
+
+  while (index < tokens.length) {
+    const match = parseStickerRefFromTokens(tokens, index);
+
+    if (!match) {
+      return null;
+    }
+
+    stickers.push(match.sticker);
+    index = match.nextIndex;
+  }
+
+  return stickers.length > 1 ? stickers : null;
+};
+
+const parseStickerRefList = (
+  input: string,
+): { stickers: StickerRef[]; invalidInputs: string[] } | null => {
+  const chunks = input
+    .split(/[,\n;]+/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+
+  if (chunks.length === 0) {
+    return null;
+  }
+
+  const stickers: StickerRef[] = [];
+  const invalidInputs: string[] = [];
+
+  for (const chunk of chunks) {
+    const sticker = parseStickerRef(chunk);
+
+    if (sticker) {
+      stickers.push(sticker);
+      continue;
+    }
+
+    const sequence = parseStickerSequence(chunk);
+
+    if (sequence) {
+      stickers.push(...sequence);
+      continue;
+    }
+
+    invalidInputs.push(chunk);
+  }
+
+  return chunks.length > 1 || stickers.length > 1 || invalidInputs.length > 0
+    ? { stickers, invalidInputs }
+    : null;
 };
 
 const parseTradeOperandMatches = (
@@ -573,6 +641,14 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
     const sticker = parseStickerRef(remainder);
 
     if (!sticker) {
+      if (intent === 'addSticker') {
+        const stickerList = parseStickerRefList(remainder);
+
+        if (stickerList && stickerList.stickers.length > 0) {
+          return { intent: 'addStickers', ...stickerList, showNames };
+        }
+      }
+
       return {
         intent: 'unknown',
         reason: 'Indica una estampa, por ejemplo: add arg4.',

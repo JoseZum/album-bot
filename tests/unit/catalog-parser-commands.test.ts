@@ -24,11 +24,14 @@ const ALBUM_SLUG = 'panini-fifa-world-cup-2026';
 const OWNER_ID = 'unit-owner';
 
 const ARG4: StickerRef = { countryCode: 'ARG', number: 4 };
+const ARG5: StickerRef = { countryCode: 'ARG', number: 5 };
 const ARG10: StickerRef = { countryCode: 'ARG', number: 10 };
 const BRA3: StickerRef = { countryCode: 'BRA', number: 3 };
 const BRA10: StickerRef = { countryCode: 'BRA', number: 10 };
 const CRC7: StickerRef = { countryCode: 'CRC', number: 7 };
+const FRA9: StickerRef = { countryCode: 'FRA', number: 9 };
 const FRA10: StickerRef = { countryCode: 'FRA', number: 10 };
+const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 const USA2: StickerRef = { countryCode: 'USA', number: 2 };
 
@@ -123,6 +126,18 @@ test('parser detects add and remove sticker intents with names flag', () => {
   assert.deepEqual(parseStickerMessage('add jpn 10'), {
     intent: 'addSticker',
     sticker: JPN10,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('add jpn3, arg 5, fra 9, BRA3'), {
+    intent: 'addStickers',
+    stickers: [JPN3, ARG5, FRA9, BRA3],
+    invalidInputs: [],
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('add jpn3 arg 5 fra9 BRA3'), {
+    intent: 'addStickers',
+    stickers: [JPN3, ARG5, FRA9, BRA3],
+    invalidInputs: [],
     showNames: false,
   });
 });

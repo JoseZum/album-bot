@@ -14,9 +14,13 @@ const ALBUM_SLUG = 'panini-fifa-world-cup-2026';
 
 const ARG1: StickerRef = { countryCode: 'ARG', number: 1 };
 const ARG2: StickerRef = { countryCode: 'ARG', number: 2 };
+const ARG5: StickerRef = { countryCode: 'ARG', number: 5 };
 const ARG4: StickerRef = { countryCode: 'ARG', number: 4 };
 const ARG10: StickerRef = { countryCode: 'ARG', number: 10 };
+const BRA3: StickerRef = { countryCode: 'BRA', number: 3 };
 const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
+const FRA9: StickerRef = { countryCode: 'FRA', number: 9 };
+const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 
 type Harness = {
@@ -303,6 +307,34 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
 
   assert.match(country.reply, /Japan \(JPN\)\n1\/20 \(5%\)/);
   assert.match(country.reply, /JPN 10/);
+});
+
+test('add accepts multiple stickers in one message', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  const batch = await service.handleMessage('add jpn3, arg 5, fra 9, BRA3', 'owner-a');
+
+  assert.equal(batch.parsed.intent, 'addStickers');
+  assert.equal(batch.reply, [
+    'JPN 3 added. You now have 1.',
+    'ARG 5 added. You now have 1.',
+    'FRA 9 added. You now have 1.',
+    'BRA 3 added. You now have 1.',
+  ].join('\n'));
+  assert.equal(await repository.getQuantity('owner-a', JPN3), 1);
+  assert.equal(await repository.getQuantity('owner-a', ARG5), 1);
+  assert.equal(await repository.getQuantity('owner-a', FRA9), 1);
+  assert.equal(await repository.getQuantity('owner-a', BRA3), 1);
+
+  const spacedBatch = await service.handleMessage('add jpn3 arg 5 fra9 BRA3', 'owner-a');
+
+  assert.equal(spacedBatch.parsed.intent, 'addStickers');
+  assert.equal(await repository.getQuantity('owner-a', JPN3), 2);
+  assert.equal(await repository.getQuantity('owner-a', ARG5), 2);
+  assert.equal(await repository.getQuantity('owner-a', FRA9), 2);
+  assert.equal(await repository.getQuantity('owner-a', BRA3), 2);
 });
 
 test('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {

@@ -327,6 +327,16 @@ export class StickerBotService {
         return this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language);
       case 'addSticker':
         return { reply: await this.addSticker(ownerId, parsed.sticker, parsed.showNames, language) };
+      case 'addStickers':
+        return {
+          reply: await this.addStickers(
+            ownerId,
+            parsed.stickers,
+            parsed.invalidInputs,
+            parsed.showNames,
+            language,
+          ),
+        };
       case 'removeSticker':
         return { reply: await this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language) };
       case 'tradeCreate':
@@ -991,6 +1001,26 @@ export class StickerBotService {
       quantity: result.currentQuantity,
       duplicateText,
     });
+  }
+
+  private async addStickers(
+    ownerId: string,
+    stickers: StickerRef[],
+    invalidInputs: string[],
+    showNames: boolean,
+    language: BotLanguage,
+  ): Promise<string> {
+    const replies: string[] = [];
+
+    for (const sticker of stickers) {
+      replies.push(await this.addSticker(ownerId, sticker, showNames, language));
+    }
+
+    for (const invalidInput of invalidInputs) {
+      replies.push(`${invalidInput}: ${t(language, 'stickerRequired')}`);
+    }
+
+    return replies.join('\n');
   }
 
   private async removeSticker(
@@ -1722,6 +1752,7 @@ export class StickerBotService {
       'querySticker',
       'queryCountry',
       'addSticker',
+      'addStickers',
       'removeSticker',
       'tradeCreate',
       'missing',
