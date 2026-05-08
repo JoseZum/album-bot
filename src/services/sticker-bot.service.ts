@@ -41,12 +41,14 @@ export type BotMessageResult = {
   reply: string;
   parsed: ParsedBotMessage;
   replyMarkup?: unknown;
+  parseMode?: 'HTML';
   outboundMessages?: BotOutboundMessage[];
 };
 
 export type BotActionResult = {
   reply: string;
   replyMarkup?: unknown;
+  parseMode?: 'HTML';
   outboundMessages?: BotOutboundMessage[];
 };
 
@@ -54,6 +56,7 @@ export type BotOutboundMessage = {
   chatId: string;
   text: string;
   replyMarkup?: unknown;
+  parseMode?: 'HTML';
 };
 
 type CountryStats = {
@@ -69,6 +72,12 @@ type TradeCandidate = {
   sticker: StickerRef;
   extraCount: number;
 };
+
+const escapeTelegramHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 
 export class StickerBotService {
   constructor(private readonly repository: CollectionRepository = collectionRepository) {}
@@ -361,12 +370,20 @@ export class StickerBotService {
       case 'undo':
         return { reply: await this.undoLast(ownerId, language) };
       case 'help':
-        return { reply: t(language, 'help') };
+        return this.helpReply(language);
       case 'unknown':
         return {
-          reply: `${this.translateParseError(parsed.reason, language)}\n\n${t(language, 'help')}`,
+          reply: `${escapeTelegramHtml(this.translateParseError(parsed.reason, language))}\n\n${t(language, 'help')}`,
+          parseMode: 'HTML',
         };
     }
+  }
+
+  private helpReply(language: BotLanguage): BotActionResult {
+    return {
+      reply: t(language, 'help'),
+      parseMode: 'HTML',
+    };
   }
 
   private async createTrade(

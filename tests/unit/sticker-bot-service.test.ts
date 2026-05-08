@@ -423,19 +423,23 @@ test('help and unknown messages return guidance without requiring an active albu
   const help = await service.handleMessage('help', 'owner-a');
 
   assert.equal(help.parsed.intent, 'help');
-  assert.match(help.reply, /^Available commands:/);
-  assert.match(help.reply, /share @username/);
-  assert.match(help.reply, /compare @username/);
+  assert.equal(help.parseMode, 'HTML');
+  assert.match(help.reply, /^<b>Available commands<\/b>/);
+  assert.match(help.reply, /\n\n<b>Albums<\/b>\n/);
+  assert.match(help.reply, /<b>share @username<\/b>/);
+  assert.match(help.reply, /<b>compare @username<\/b>/);
 
   const unknown = await service.handleMessage('what is this', 'owner-a');
 
   assert.equal(unknown.parsed.intent, 'unknown');
-  assert.match(unknown.reply, /^I could not detect a country, number, or command\.\n\nAvailable commands:/);
+  assert.equal(unknown.parseMode, 'HTML');
+  assert.match(unknown.reply, /^I could not detect a country, number, or command\.\n\n<b>Available commands<\/b>/);
 
   const empty = await service.handleMessage('   ', 'owner-a');
 
   assert.equal(empty.parsed.intent, 'unknown');
-  assert.match(empty.reply, /^Empty message\.\n\nAvailable commands:/);
+  assert.equal(empty.parseMode, 'HTML');
+  assert.match(empty.reply, /^Empty message\.\n\n<b>Available commands<\/b>/);
   assert.equal(
     (await service.handleCallbackData('totally:unknown', 'owner-a')).reply,
     'Invalid album sharing response.',

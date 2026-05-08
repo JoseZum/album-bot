@@ -63,6 +63,7 @@ const postTelegramWebhook = async (
       await telegramService.answerCallbackQuery(callbackQuery.id);
       const sendResult = await telegramService.sendMessage(chatId, result.reply, {
         replyMarkup: result.replyMarkup,
+        parseMode: result.parseMode,
       });
       const outboundResults = [];
 
@@ -70,6 +71,7 @@ const postTelegramWebhook = async (
         outboundResults.push(
           await telegramService.sendMessage(outboundMessage.chatId, outboundMessage.text, {
             replyMarkup: outboundMessage.replyMarkup,
+            parseMode: outboundMessage.parseMode,
           }),
         );
       }
@@ -103,6 +105,7 @@ const postTelegramWebhook = async (
     const result = await stickerBotService.handleMessage(message.text, String(chatId));
     const sendResult = await telegramService.sendMessage(chatId, result.reply, {
       replyMarkup: result.replyMarkup,
+      parseMode: result.parseMode,
     });
     const outboundResults = [];
 
@@ -110,6 +113,7 @@ const postTelegramWebhook = async (
       outboundResults.push(
         await telegramService.sendMessage(outboundMessage.chatId, outboundMessage.text, {
           replyMarkup: outboundMessage.replyMarkup,
+          parseMode: outboundMessage.parseMode,
         }),
       );
     }

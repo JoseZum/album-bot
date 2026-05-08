@@ -161,7 +161,7 @@ test('TelegramService sends expected fetch payloads and returns Telegram JSON', 
         inline_keyboard: [[{ text: 'Open', callback_data: 'open:1' }]],
       };
 
-      assert.deepEqual(await service.sendMessage(12345, 'hello', { replyMarkup }), {
+      assert.deepEqual(await service.sendMessage(12345, 'hello', { replyMarkup, parseMode: 'HTML' }), {
         sent: true,
         telegramResponse: sendPayload,
       });
@@ -185,6 +185,7 @@ test('TelegramService sends expected fetch payloads and returns Telegram JSON', 
         reply_markup: {
           inline_keyboard: [[{ text: 'Open', callback_data: 'open:1' }]],
         },
+        parse_mode: 'HTML',
       },
     },
     {

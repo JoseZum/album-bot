@@ -8,7 +8,7 @@ export class TelegramService {
   async sendMessage(
     chatId: number | string,
     text: string,
-    options: { replyMarkup?: unknown } = {},
+    options: { replyMarkup?: unknown; parseMode?: 'HTML' } = {},
   ): Promise<TelegramSendResult> {
     const token = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -28,6 +28,7 @@ export class TelegramService {
         chat_id: chatId,
         text,
         ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
+        ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
       }),
     });
     const payload = await response.json().catch(() => null);
