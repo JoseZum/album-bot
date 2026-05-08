@@ -160,13 +160,13 @@ test('start menu, album creation, selection, listing, and album callbacks use th
   const start = await service.handleMessage('start', 'owner-a');
 
   assert.equal(start.parsed.intent, 'start');
-  assert.match(start.reply, /^Album menu\nNo active album yet\./);
+  assert.match(start.reply, /^<b>Album menu<\/b>\nNo active album yet\./);
   assert.match(stringifyMarkup(start.replyMarkup), /album:create:panini-fifa-world-cup-2026/);
 
   const emptyList = await service.handleMessage('albums', 'owner-a');
 
   assert.equal(emptyList.parsed.intent, 'albumList');
-  assert.match(emptyList.reply, /^Albums\nNo active album yet\./);
+  assert.match(emptyList.reply, /^<b>Albums<\/b>\nNo active album yet\./);
   assert.match(emptyList.reply, /You do not have albums yet\./);
 
   const customAlbum = await service.handleMessage('new album Road to 2026', 'owner-a');
@@ -236,7 +236,7 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
 
   const country = await service.handleMessage('arg', 'owner-a');
 
-  assert.match(country.reply, /^🇦🇷 Argentina \(ARG\)\n2\/20 \(10%\) · Duplicates: 1\n\n/);
+  assert.match(country.reply, /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\) · Duplicates: 1\n\n/);
   assert.match(country.reply, /ARG ⠀2 ✅ ×2\n/);
   assert.match(country.reply, /ARG ⠀4 ✅\n/);
   assert.match(country.reply, /ARG ⠀1 ❌\n/);
@@ -303,7 +303,7 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
 
   const country = await service.handleMessage('jpn', 'owner-a');
 
-  assert.match(country.reply, /Japan \(JPN\)\n1\/20 \(5%\)/);
+  assert.match(country.reply, /<b>Japan \(JPN\)<\/b>\n1\/20 \(5%\)/);
   assert.match(country.reply, /JPN 10/);
 });
 

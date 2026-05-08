@@ -1,5 +1,6 @@
 import {
   AVAILABLE_ALBUM_TEMPLATES,
+  getAlbumTemplate,
 } from '../catalog/album-templates.catalog';
 import type { AlbumPageEntry } from '../catalog/album-pages.catalog';
 import {
@@ -1844,7 +1845,7 @@ export class StickerBotService {
     const lines = [
       t(language, 'startMenu'),
       activeAlbum
-        ? t(language, 'activeAlbumLine', { albumName: activeAlbum.name })
+        ? t(language, 'activeAlbumLine', { albumName: escapeTelegramHtml(activeAlbum.name) })
         : t(language, 'noActiveAlbum'),
     ];
 
@@ -1877,6 +1878,7 @@ export class StickerBotService {
 
     return {
       reply: lines.join('\n'),
+      parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: albumRows,
       },
@@ -1889,7 +1891,7 @@ export class StickerBotService {
     const lines = [t(language, 'albumsTitle')];
 
     if (activeAlbum) {
-      lines.push(t(language, 'activeAlbumLine', { albumName: activeAlbum.name }));
+      lines.push(t(language, 'activeAlbumLine', { albumName: escapeTelegramHtml(activeAlbum.name) }));
     } else {
       lines.push(t(language, 'noActiveAlbum'));
     }
@@ -1903,6 +1905,7 @@ export class StickerBotService {
 
       return {
         reply: lines.join('\n'),
+        parseMode: 'HTML',
         replyMarkup: (await this.startMenuReply(ownerId, language)).replyMarkup,
       };
     }
@@ -1912,6 +1915,7 @@ export class StickerBotService {
 
     return {
       reply: lines.join('\n'),
+      parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: userAlbums.map((album) => [
           {
@@ -2125,15 +2129,17 @@ export class StickerBotService {
     index: number,
     language: BotLanguage,
   ): string {
+    const template = getAlbumTemplate(album.albumSlug);
+    const templateName = template?.name ?? album.albumSlug;
     const markers = [
       album.isActive ? t(language, 'albumActiveMarker') : undefined,
       album.isShared ? t(language, 'albumSharedMarker') : t(language, 'albumOwnedMarker'),
-    ].filter(Boolean);
+    ].filter(Boolean) as string[];
     const ownerText = album.isShared && album.ownerDisplayName
-      ? `, ${album.ownerDisplayName}`
+      ? ` · ${album.ownerDisplayName}`
       : '';
 
-    return `${index + 1}. ${album.name} [${markers.join(', ')}] (${album.memberCount}${ownerText})`;
+    return `${index + 1}. <b>${escapeTelegramHtml(album.name)}</b>\n   ${templateName} · ${markers.join(' · ')}${ownerText}`;
   }
 
   private translateAlbumLookupError(
