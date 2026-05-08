@@ -1063,50 +1063,26 @@ export class StickerBotService {
       summaryParts.join(' · '),
     ].join('\n');
 
-    if (showNames) {
-      const numWidth = String(stats.total).length;
-      const rows: string[] = [];
-
-      for (let i = 1; i <= stats.total; i++) {
-        const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
-        const qty = stats.quantities[stickerKey(sticker)] ?? 0;
-        const name = country.names[i];
-        const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, '⠀')}`;
-        const nameStr = name ? ` ${name}` : '';
-
-        if (qty > 0) {
-          const dupeStr = qty > 1 ? ` ×${qty}` : '';
-          rows.push(`${numStr}${nameStr} ✅${dupeStr}`);
-        } else {
-          rows.push(`${numStr}${nameStr} ❌`);
-        }
-      }
-
-      return {
-        reply: `${header}\n\n${rows.join('\n')}`,
-        parseMode: 'HTML',
-      };
-    }
-
-    const ownedParts: string[] = [];
-    const missingNums: number[] = [];
+    const numWidth = String(stats.total).length;
+    const rows: string[] = [];
 
     for (let i = 1; i <= stats.total; i++) {
       const sticker: StickerRef = { countryCode: stats.countryCode, number: i };
       const qty = stats.quantities[stickerKey(sticker)] ?? 0;
+      const name = showNames ? country.names[i] : undefined;
+      const numStr = `${stats.countryCode} ${String(i).padStart(numWidth, '⠀')}`;
+      const nameStr = name ? ` ${name}` : '';
 
       if (qty > 0) {
-        ownedParts.push(qty > 1 ? `${i}×${qty}` : String(i));
+        const dupeStr = qty > 1 ? ` ×${qty}` : '';
+        rows.push(`${numStr}${nameStr} ✅${dupeStr}`);
       } else {
-        missingNums.push(i);
+        rows.push(`${numStr}${nameStr} ❌`);
       }
     }
 
-    const ownedStr = ownedParts.length > 0 ? ownedParts.join(' ') : '—';
-    const missingStr = compressRanges(missingNums);
-
     return {
-      reply: `${header}\n\n✅ ${ownedStr}\n❌ ${missingStr}`,
+      reply: `${header}\n\n${rows.join('\n')}`,
       parseMode: 'HTML',
     };
   }

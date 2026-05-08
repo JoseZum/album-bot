@@ -237,8 +237,9 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   const country = await service.handleMessage('arg', 'owner-a');
 
   assert.match(country.reply, /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\) · Duplicates: 1\n\n/);
-  assert.match(country.reply, /✅ 2×2 4/);
-  assert.match(country.reply, /❌ 1 3 5-20/);
+  assert.match(country.reply, /ARG ⠀2 ✅ ×2\n/);
+  assert.match(country.reply, /ARG ⠀4 ✅\n/);
+  assert.match(country.reply, /ARG ⠀1 ❌\n/);
 
   assert.equal((await service.handleMessage('duplicates', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
   assert.equal((await service.handleMessage('duplicates arg', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
@@ -303,7 +304,7 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
   const country = await service.handleMessage('jpn', 'owner-a');
 
   assert.match(country.reply, /<b>Japan \(JPN\)<\/b>\n1\/20 \(5%\)/);
-  assert.match(country.reply, /✅ 10/);
+  assert.match(country.reply, /JPN 10/);
 });
 
 test('add accepts multiple stickers in one message', async () => {
