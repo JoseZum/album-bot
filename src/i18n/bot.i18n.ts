@@ -597,22 +597,6 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
       '<code>friends trade</code> — friend marketplace',
     ].join('\n'),
   },
-};
-
-export const languageKeyboard = {
-  inline_keyboard: [
-    [
-      { text: 'English 🇺🇸', callback_data: 'lang:en' },
-      { text: 'Español 🇪🇸', callback_data: 'lang:es' },
-      { text: '中文 🇨🇳', callback_data: 'lang:zh' },
-    ],
-    [
-      { text: 'Français 🇫🇷', callback_data: 'lang:fr' },
-      { text: 'Italiano 🇮🇹', callback_data: 'lang:it' },
-    ],
-  ],
-};
-
   fr: {
     chooseLanguage: 'Choisissez votre langue.',
     languageSaved: 'Langue définie en français.',
@@ -925,6 +909,20 @@ export const languageKeyboard = {
       '<code>amici scambio</code> — mercato amici',
     ].join('\n'),
   },
+};
+
+export const languageKeyboard = {
+  inline_keyboard: [
+    [
+      { text: 'English 🇺🇸', callback_data: 'lang:en' },
+      { text: 'Español 🇪🇸', callback_data: 'lang:es' },
+      { text: '中文 🇨🇳', callback_data: 'lang:zh' },
+    ],
+    [
+      { text: 'Français 🇫🇷', callback_data: 'lang:fr' },
+      { text: 'Italiano 🇮🇹', callback_data: 'lang:it' },
+    ],
+  ],
 };
 
 export const isBotLanguage = (value: string): value is BotLanguage =>
