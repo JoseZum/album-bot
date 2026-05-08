@@ -215,9 +215,9 @@ test('POST /api/bot/message can create and select albums through messages', asyn
   });
   const startReply = String(responseData(startMenu.body).reply);
 
-  assert.match(startReply, /Active album: Road to 2026\./);
-  assert.match(startReply, /1\. Road to 2026/);
-  assert.match(startReply, /2\. Swap Duplicates/);
+  assert.match(startReply, /Active: <b>Road to 2026<\/b>/);
+  assert.match(startReply, /Road to 2026/);
+  assert.match(startReply, /Swap Duplicates/);
 
   const activeAlbumResult = await testPool.query(
     `SELECT ua.name
