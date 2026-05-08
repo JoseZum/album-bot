@@ -28,7 +28,7 @@ const ARG5: StickerRef = { countryCode: 'ARG', number: 5 };
 const ARG10: StickerRef = { countryCode: 'ARG', number: 10 };
 const BRA3: StickerRef = { countryCode: 'BRA', number: 3 };
 const BRA10: StickerRef = { countryCode: 'BRA', number: 10 };
-const CRC7: StickerRef = { countryCode: 'CRC', number: 7 };
+const COL7: StickerRef = { countryCode: 'COL', number: 7 };
 const FRA9: StickerRef = { countryCode: 'FRA', number: 9 };
 const FRA10: StickerRef = { countryCode: 'FRA', number: 10 };
 const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
@@ -61,13 +61,13 @@ test('catalog normalizes parser input consistently', () => {
 
 test('catalog exposes country aliases ordered for parsing and resolves aliases', () => {
   const aliases = getCountryAliasesForParsing();
-  const costaRicaAlias = aliases.find((entry) => entry.normalizedAlias === 'costa rica');
-  const crcAlias = aliases.find((entry) => entry.normalizedAlias === 'crc');
+  const colombiaAlias = aliases.find((entry) => entry.normalizedAlias === 'colombia');
+  const colAlias = aliases.find((entry) => entry.normalizedAlias === 'col');
 
-  assert.ok(costaRicaAlias);
-  assert.ok(crcAlias);
-  assert.equal(costaRicaAlias.country.code, 'CRC');
-  assert.equal(crcAlias.country.name, 'Costa Rica');
+  assert.ok(colombiaAlias);
+  assert.ok(colAlias);
+  assert.equal(colombiaAlias.country.code, 'COL');
+  assert.equal(colAlias.country.name, 'Colombia');
   assert.equal(resolveCountry('  Países   Bajos ')?.code, 'NED');
   assert.equal(resolveCountry('EEUU')?.code, 'USA');
   assert.equal(resolveCountry('not a country'), undefined);
@@ -108,7 +108,7 @@ test('catalog formats stickers with optional player names', () => {
   assert.equal(formatSticker({ countryCode: 'arg', number: 10 }), 'ARG 10');
   assert.equal(formatSticker(ARG10, { includeName: true }), 'ARG 10 - Lionel Messi');
   assert.equal(formatSticker(BRA10, { includeName: true }), 'BRA 10 - Neymar Jr');
-  assert.equal(formatSticker(CRC7, { includeName: true }), 'CRC 7');
+  assert.equal(formatSticker(COL7, { includeName: true }), 'COL 7');
   assert.equal(getCatalogEntry('fra')?.names[10], 'Kylian Mbappe');
 });
 
@@ -118,9 +118,9 @@ test('parser detects add and remove sticker intents with names flag', () => {
     sticker: ARG10,
     showNames: true,
   });
-  assert.deepEqual(parseStickerMessage('rm costa rica 7'), {
+  assert.deepEqual(parseStickerMessage('rm colombia 7'), {
     intent: 'removeSticker',
-    sticker: CRC7,
+    sticker: COL7,
     showNames: false,
   });
   assert.deepEqual(parseStickerMessage('add jpn 10'), {
