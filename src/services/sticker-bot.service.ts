@@ -84,6 +84,29 @@ const escapeTelegramHtml = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+const albumActionsKeyboard = (language: BotLanguage) => ({
+  keyboard: [
+    [{ text: t(language, 'buttonAddRemove') }],
+    [
+      { text: t(language, 'buttonProgress') },
+      { text: t(language, 'buttonDuplicates') },
+      { text: t(language, 'buttonMissing') },
+    ],
+    [{ text: t(language, 'buttonCompare') }],
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+});
+
+const showAlbumActions = (language: BotLanguage): BotActionResult => {
+  return {
+    text: t(language, 'albumActionsTitle'),
+    options: {
+      reply_markup: albumActionsKeyboard(language),
+    },
+  };
+};
+
 const compressRanges = (nums: number[]): string => {
   if (nums.length === 0) return '—';
   const parts: string[] = [];
@@ -251,10 +274,9 @@ export class StickerBotService {
           return { reply: t(language, 'unknownAlbumAction') };
         }
 
-        return {
-          reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
-          parseMode: 'HTML',
-        };
+        await this.repository.selectAlbum(ownerId, album.id);
+
+        return showAlbumActions(language);
       }
 
       const album = await this.repository.setActiveAlbum(ownerId, value);
@@ -1999,10 +2021,9 @@ export class StickerBotService {
       return { reply: t(language, 'albumCreateFailed') };
     }
 
-    return {
-      reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
-      parseMode: 'HTML',
-    };
+    await this.repository.selectAlbum(ownerId, album.id);
+
+    return showAlbumActions(language);
   }
 
   private async selectAlbum(ownerId: string, selector: string, language: BotLanguage): Promise<BotActionResult> {
