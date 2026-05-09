@@ -833,7 +833,7 @@ export class CollectionRepository {
     // Get last event for this collector in this album
     const eventResult = await this.db.query<Record<string, unknown>>(
       `SELECT e.id, e.sticker_code, e.action, e.previous_quantity, e.current_quantity, e.created_at,
-              t.code AS team_code, t.name AS team_name, s.sticker_number
+              t.code AS team_code, t.name AS team_name, s.sticker_number, s.subject
        FROM user_album_events e
        JOIN stickers s ON s.code = e.sticker_code
        LEFT JOIN teams t ON t.id = s.team_id
@@ -849,13 +849,14 @@ export class CollectionRepository {
 
     const eventRow = eventResult.rows[0];
     const eventId = eventRow.id as number;
+    const stickerCode = eventRow.sticker_code as string;
     const teamCode = eventRow.team_code as string | null;
     const teamName = eventRow.team_name as string | null;
     const stickerNumber = eventRow.sticker_number as number | null;
-    const countryCode = this.toCatalogCountryCode(teamCode, teamName);
+    const subject = eventRow.subject as string | null;
+    const countryCode = this.toCatalogCountryCode(teamCode, teamName, stickerCode, subject);
 
     if (!countryCode || !stickerNumber) {
-      // Cannot undo non-team sticker
       await this.db.query(`DELETE FROM user_album_events WHERE id = $1`, [eventId]);
 
       return null;
@@ -866,7 +867,6 @@ export class CollectionRepository {
     const currentQuantity = eventRow.current_quantity as number;
     const action = eventRow.action as StickerHistoryAction;
     const timestamp = (eventRow.created_at as Date).toISOString();
-    const stickerCode = eventRow.sticker_code as string;
 
     // Restore previous quantity
     if (previousQuantity === 0) {
@@ -2037,13 +2037,19 @@ export class CollectionRepository {
 
   private async getStickerDbCode(sticker: StickerRef): Promise<string | null> {
     const country = getCatalogEntry(sticker.countryCode);
+    const specialLookup = `${sticker.countryCode.toUpperCase()}${sticker.number}`;
     const result = await this.db.query<{ code: string }>(
       `SELECT s.code
        FROM stickers s
-       JOIN teams t ON t.id = s.team_id
-       WHERE (t.code = $1 OR ($3::text IS NOT NULL AND upper(t.name) = upper($3)))
-         AND s.sticker_number = $2`,
-      [sticker.countryCode.toUpperCase(), sticker.number, country?.name ?? null],
+       LEFT JOIN teams t ON t.id = s.team_id
+       WHERE s.sticker_number = $2
+         AND (
+           t.code = $1
+           OR ($3::text IS NOT NULL AND upper(t.name) = upper($3))
+           OR upper(s.code) = $4
+           OR regexp_replace(upper(s.subject), '\s+', '', 'g') = $4
+         )`,
+      [sticker.countryCode.toUpperCase(), sticker.number, country?.name ?? null, specialLookup],
     );
 
     return result.rows[0]?.code ?? null;
@@ -2101,15 +2107,17 @@ export class CollectionRepository {
 
   private async getStickerQuantitiesForAlbum(albumId: string): Promise<Record<string, number>> {
     const result = await this.db.query<{
+      sticker_code: string;
+      subject: string;
       team_code: string;
       team_name: string;
       sticker_number: number;
       quantity: number;
     }>(
-      `SELECT t.code AS team_code, t.name AS team_name, s.sticker_number, uai.quantity
+      `SELECT s.code AS sticker_code, s.subject, t.code AS team_code, t.name AS team_name, s.sticker_number, uai.quantity
        FROM user_album_items uai
        JOIN stickers s ON s.code = uai.sticker_code
-       JOIN teams t ON t.id = s.team_id
+       LEFT JOIN teams t ON t.id = s.team_id
        WHERE uai.user_album_id = $1 AND uai.variant_code = 'BASE' AND uai.quantity > 0`,
       [albumId],
     );
@@ -2117,7 +2125,12 @@ export class CollectionRepository {
     const quantities: Record<string, number> = {};
 
     for (const row of result.rows) {
-      const countryCode = this.toCatalogCountryCode(row.team_code, row.team_name);
+      const countryCode = this.toCatalogCountryCode(
+        row.team_code,
+        row.team_name,
+        row.sticker_code,
+        row.subject,
+      );
 
       if (countryCode && row.sticker_number) {
         const key = stickerKey({ countryCode, number: row.sticker_number });
@@ -2129,7 +2142,12 @@ export class CollectionRepository {
     return quantities;
   }
 
-  private toCatalogCountryCode(teamCode: string | null | undefined, teamName: string | null | undefined): string | null {
+  private toCatalogCountryCode(
+    teamCode: string | null | undefined,
+    teamName: string | null | undefined,
+    stickerCode?: string | null,
+    subject?: string | null,
+  ): string | null {
     if (teamCode) {
       const directMatch = getCatalogEntry(teamCode);
 
@@ -2144,6 +2162,18 @@ export class CollectionRepository {
       if (nameMatch) {
         return nameMatch.code;
       }
+    }
+
+    if (stickerCode && /^CC\d+$/i.test(stickerCode)) {
+      return 'CC';
+    }
+
+    if (stickerCode && /^FWC\d+$/i.test(stickerCode)) {
+      return 'FWC';
+    }
+
+    if (subject && /^FWC\s*\d+$/i.test(subject)) {
+      return 'FWC';
     }
 
     return teamCode ?? null;

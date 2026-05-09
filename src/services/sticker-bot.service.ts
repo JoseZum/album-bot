@@ -8,7 +8,6 @@ import {
   formatSticker,
   getAllStickerRefs,
   getCatalogEntry,
-  getCatalogTotal,
   getCountryFlag,
   isKnownSticker,
   sortStickers,
@@ -95,6 +94,7 @@ const escapeTelegramHtml = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
+const SPECIAL_COUNTRY_CODES = new Set(['FWC', 'CC']);
 
 
 const compressRanges = (nums: number[]): string => {
@@ -442,6 +442,7 @@ export class StickerBotService {
       case 'menu:cards:progress':
         return this.cardsMenuAlbumAction(ownerId, language, async () => ({
           reply: await this.showProgress(ownerId, language),
+          parseMode: 'HTML',
         }));
       case 'menu:cards:duplicates':
         return this.cardsMenuAlbumAction(ownerId, language, async () => ({
@@ -462,6 +463,7 @@ export class StickerBotService {
       case 'menu:friends:duplicates':
         return {
           reply: await this.showFriendsDuplicates(ownerId, undefined, undefined, false, language),
+          parseMode: 'HTML',
           replyMarkup: this.inlineKeyboard([
             [
               this.menuButton(t(language, 'buttonMenuFriends'), 'menu:friends'),
@@ -569,6 +571,11 @@ export class StickerBotService {
             : await this.showDuplicates(ownerId, parsed.countryCode, parsed.sticker, parsed.showNames, language),
           parseMode: 'HTML',
         };
+      case 'anyNumber':
+        return {
+          reply: await this.showAnyNumber(ownerId, parsed.number, language),
+          parseMode: 'HTML',
+        };
       case 'friendsList':
         return { reply: await this.listFriends(ownerId, language) };
       case 'friendAdd':
@@ -578,9 +585,10 @@ export class StickerBotService {
       case 'friendsDuplicates':
         return {
           reply: await this.showFriendsDuplicates(ownerId, parsed.countryCode, parsed.sticker, parsed.showNames, language),
+          parseMode: 'HTML',
         };
       case 'progress':
-        return { reply: await this.showProgress(ownerId, language) };
+        return { reply: await this.showProgress(ownerId, language), parseMode: 'HTML' };
       case 'page':
         return { reply: this.showAlbumPage(parsed.country, parsed.countryInput, language) };
       case 'share':
@@ -1014,7 +1022,7 @@ export class StickerBotService {
       );
     }
 
-    return lines.join('\n');
+    return lines.join('\n\n');
   }
 
   private buildMarketplaceKeyboard(offers: TradeOffer[]): unknown {
@@ -1194,7 +1202,7 @@ export class StickerBotService {
       const nameStr = name ? ` ${name}` : '';
 
       if (qty > 0) {
-        const dupeStr = qty > 1 ? ` ×${qty}` : '';
+        const dupeStr = qty > 1 ? ` ${this.formatExtraCount(qty - 1)}` : '';
         rows.push(`${numStr}${nameStr} ✅${dupeStr}`);
       } else {
         rows.push(`${numStr}${nameStr} ❌`);
@@ -1402,16 +1410,20 @@ export class StickerBotService {
         return [
           header,
           progress,
-          t(language, 'duplicatesList', {
-            stickers: this.formatDuplicateEntries(duplicates, showNames),
-          }),
+          this.formatDuplicatesTitle(language),
+          this.formatDuplicateEntryLines(duplicates, showNames),
         ].join('\n');
       }
     }
 
-    return t(language, 'duplicatesList', {
-      stickers: this.formatDuplicateEntries(duplicates, showNames),
-    });
+    const body = !countryCode && !sticker
+      ? this.formatDuplicateCountrySections(duplicates, showNames)
+      : this.formatDuplicateEntryLines(duplicates, showNames);
+
+    return [
+      this.formatDuplicatesTitle(language),
+      body,
+    ].join('\n\n');
   }
 
   private async showUserDuplicates(
@@ -1451,10 +1463,14 @@ export class StickerBotService {
       return t(language, 'friendDuplicatesNone', { username: displayName });
     }
 
-    return t(language, 'friendDuplicatesList', {
-      username: displayName,
-      stickers: this.formatDuplicateEntries(duplicates, showNames),
-    });
+    const body = !countryCode && !sticker
+      ? this.formatDuplicateCountrySections(duplicates, showNames)
+      : this.formatDuplicateEntryLines(duplicates, showNames);
+
+    return [
+      `<b>${escapeTelegramHtml(displayName)}</b>`,
+      body,
+    ].join('\n\n');
   }
 
   private async showFriendsDuplicates(
@@ -1470,7 +1486,7 @@ export class StickerBotService {
       return t(language, 'friendsNone');
     }
 
-    const lines = [t(language, 'friendsDuplicatesTitle')];
+    const lines = [`<b>${escapeTelegramHtml(t(language, 'friendsDuplicatesTitle'))}</b>`];
 
     for (const friend of overview.friends) {
       if (!await this.repository.hasActiveAlbum(friend.ownerId)) {
@@ -1484,7 +1500,12 @@ export class StickerBotService {
       );
 
       if (duplicates.length > 0) {
-        lines.push(`${friend.displayName ?? friend.ownerId}: ${this.formatDuplicateEntries(duplicates, showNames)}`);
+        const displayName = escapeTelegramHtml(friend.displayName ?? friend.ownerId);
+        const body = !countryCode && !sticker
+          ? this.formatDuplicateCountrySections(duplicates, showNames)
+          : this.formatDuplicateEntryLines(duplicates, showNames);
+
+        lines.push(`<b>${displayName}</b>\n${body}`);
       }
     }
 
@@ -1516,15 +1537,6 @@ export class StickerBotService {
       .sort((left, right) => sortStickers([left.sticker, right.sticker])[0] === left.sticker ? -1 : 1);
   }
 
-  private formatDuplicateEntries(
-    duplicates: { sticker: StickerRef; quantity: number }[],
-    showNames: boolean,
-  ): string {
-    return duplicates
-      .map((entry) => `${formatSticker(entry.sticker, { includeName: showNames })} x${entry.quantity}`)
-      .join(', ');
-  }
-
   private async showProgress(ownerId: string, language: BotLanguage): Promise<string> {
     const quantities = await this.repository.getStickerQuantities(ownerId);
     const knownEntries = Object.entries(quantities)
@@ -1535,13 +1547,15 @@ export class StickerBotService {
       .filter((entry): entry is { sticker: StickerRef; quantity: number } =>
         Boolean(entry.sticker && isKnownSticker(entry.sticker) && entry.quantity > 0),
       );
-    const uniqueOwned = knownEntries.length;
-    const duplicates = knownEntries.reduce((total, entry) => total + Math.max(entry.quantity - 1, 0), 0);
-    const countriesStarted = new Set(knownEntries.map((entry) => entry.sticker.countryCode)).size;
-    const total = getCatalogTotal();
-
-    return [
-      t(language, 'generalProgressTitle'),
+    const regularCountries = WORLD_CUP_CATALOG.filter((country) => !this.isSpecialCountryCode(country.code));
+    const regularCountryCodes = new Set(regularCountries.map((country) => country.code));
+    const regularEntries = knownEntries.filter((entry) => regularCountryCodes.has(entry.sticker.countryCode));
+    const uniqueOwned = regularEntries.length;
+    const duplicates = regularEntries.reduce((total, entry) => total + Math.max(entry.quantity - 1, 0), 0);
+    const countriesStarted = new Set(regularEntries.map((entry) => entry.sticker.countryCode)).size;
+    const total = regularCountries.reduce((sum, country) => sum + country.totalStickers, 0);
+    const lines = [
+      `<b>${escapeTelegramHtml(t(language, 'generalProgressTitle'))}</b>`,
       t(language, 'generalProgressOwned', {
         owned: uniqueOwned,
         total,
@@ -1550,9 +1564,63 @@ export class StickerBotService {
       t(language, 'generalProgressDuplicates', { duplicates }),
       t(language, 'generalProgressCountries', {
         countriesStarted,
-        countriesTotal: WORLD_CUP_CATALOG.length,
+        countriesTotal: regularCountries.length,
       }),
-    ].join('\n');
+      '',
+      '<b>FWC / CC</b>',
+    ];
+
+    for (const country of WORLD_CUP_CATALOG.filter((entry) => this.isSpecialCountryCode(entry.code))) {
+      const stickers = getAllStickerRefs(country.code);
+      const owned = stickers.filter((sticker) => (quantities[stickerKey(sticker)] ?? 0) > 0).length;
+      const specialDuplicates = stickers.reduce(
+        (sum, sticker) => sum + Math.max((quantities[stickerKey(sticker)] ?? 0) - 1, 0),
+        0,
+      );
+      const lineParts = [
+        `${getCountryFlag(country.code)} <b>${country.code}</b>: ${t(language, 'countryProgress', {
+          owned,
+          total: country.totalStickers,
+          percentage: this.formatPercentage(owned, country.totalStickers),
+        })}`,
+      ];
+
+      if (specialDuplicates > 0) {
+        lineParts.push(t(language, 'countryDuplicates', { duplicates: specialDuplicates }));
+      }
+
+      lines.push(lineParts.join(' · '));
+    }
+
+    return lines.join('\n');
+  }
+
+  private async showAnyNumber(ownerId: string, number: number, language: BotLanguage): Promise<string> {
+    const regularCountries = WORLD_CUP_CATALOG
+      .filter((country) => !this.isSpecialCountryCode(country.code) && number >= 1 && number <= country.totalStickers)
+      .sort((left, right) => left.code.localeCompare(right.code));
+
+    if (regularCountries.length === 0) {
+      const maxRegularSticker = WORLD_CUP_CATALOG
+        .filter((country) => !this.isSpecialCountryCode(country.code))
+        .reduce((max, country) => Math.max(max, country.totalStickers), 0);
+
+      return t(language, 'invalidStickerNumber', {
+        label: `ANY ${number}`,
+        countryCode: 'ANY',
+        total: maxRegularSticker,
+      });
+    }
+
+    const quantities = await this.repository.getStickerQuantities(ownerId);
+
+    return regularCountries
+      .map((country) => {
+        const owned = (quantities[stickerKey({ countryCode: country.code, number })] ?? 0) > 0;
+
+        return `${getCountryFlag(country.code)} <b>${country.code}</b>: ${owned ? '✅' : '❌'}`;
+      })
+      .join('\n');
   }
 
   private async shareAlbum(
@@ -1936,7 +2004,7 @@ export class StickerBotService {
 
     return candidates
       .map((candidate) =>
-        `${formatSticker(candidate.sticker, { includeName: showNames })} x${candidate.extraCount}`,
+        `${formatSticker(candidate.sticker, { includeName: showNames })} ${this.formatExtraCount(candidate.extraCount)}`,
       )
       .join(', ');
   }
@@ -1987,6 +2055,47 @@ export class StickerBotService {
     const formatted = percentage.toFixed(1).replace(/\.0$/, '');
 
     return `${formatted}%`;
+  }
+
+  private isSpecialCountryCode(countryCode: string): boolean {
+    return SPECIAL_COUNTRY_CODES.has(countryCode.toUpperCase());
+  }
+
+  private formatDuplicatesTitle(language: BotLanguage): string {
+    return `<b>${escapeTelegramHtml(t(language, 'duplicatesTitle'))}</b>`;
+  }
+
+  private formatExtraCount(extraCount: number): string {
+    return `(${extraCount})`;
+  }
+
+  private formatDuplicateEntryLines(
+    duplicates: { sticker: StickerRef; quantity: number }[],
+    showNames: boolean,
+  ): string {
+    return duplicates
+      .map((entry) => `${formatSticker(entry.sticker, { includeName: showNames })} ${this.formatExtraCount(entry.quantity - 1)}`)
+      .join('\n');
+  }
+
+  private formatDuplicateCountrySections(
+    duplicates: { sticker: StickerRef; quantity: number }[],
+    showNames: boolean,
+  ): string {
+    const sections = new Map<string, { sticker: StickerRef; quantity: number }[]>();
+
+    for (const duplicate of duplicates) {
+      const entries = sections.get(duplicate.sticker.countryCode) ?? [];
+      entries.push(duplicate);
+      sections.set(duplicate.sticker.countryCode, entries);
+    }
+
+    return Array.from(sections.entries())
+      .map(([countryCode, entries]) => [
+        `${getCountryFlag(countryCode)} <b>${countryCode}</b>:`,
+        this.formatDuplicateEntryLines(entries, showNames),
+      ].join('\n'))
+      .join('\n\n');
   }
 
   private validateSticker(sticker: StickerRef, language: BotLanguage): string | null {
@@ -2499,6 +2608,7 @@ export class StickerBotService {
       'tradeCreate',
       'missing',
       'duplicates',
+      'anyNumber',
       'progress',
       'share',
       'compare',

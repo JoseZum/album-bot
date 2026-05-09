@@ -19,6 +19,8 @@ const ARG4: StickerRef = { countryCode: 'ARG', number: 4 };
 const ARG10: StickerRef = { countryCode: 'ARG', number: 10 };
 const BRA3: StickerRef = { countryCode: 'BRA', number: 3 };
 const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
+const CC1: StickerRef = { countryCode: 'CC', number: 1 };
+const FWC9: StickerRef = { countryCode: 'FWC', number: 9 };
 const FRA9: StickerRef = { countryCode: 'FRA', number: 9 };
 const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
@@ -145,6 +147,11 @@ test('language selection gates messages until a language callback is handled', a
 
   assert.equal(albumRequired.parsed.intent, 'progress');
   assert.match(albumRequired.reply, /^Hi! I'll help you track your 2026 World Cup sticker album\./);
+
+  const anyRequired = await service.handleMessage('any1', 'owner-a');
+
+  assert.equal(anyRequired.parsed.intent, 'anyNumber');
+  assert.match(anyRequired.reply, /^Hi! I'll help you track your 2026 World Cup sticker album\./);
 
   const languageMenu = await service.handleMessage('language', 'owner-a');
 
@@ -285,18 +292,21 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   const country = await service.handleMessage('arg', 'owner-a');
 
   assert.match(country.reply, /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\) · Duplicates: 1\n\n/);
-  assert.match(country.reply, /ARG ⠀2 ✅ ×2\n/);
+  assert.match(country.reply, /ARG ⠀2 ✅ \(1\)\n/);
   assert.match(country.reply, /ARG ⠀4 ✅\n/);
   assert.match(country.reply, /ARG ⠀1 ❌\n/);
 
-  assert.equal((await service.handleMessage('duplicates', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
-  assert.equal(
-    (await service.handleCallbackData('menu:cards:duplicates', 'owner-a')).reply,
-    'Duplicates: ARG 2 x2.',
-  );
+  const duplicates = await service.handleMessage('duplicates', 'owner-a');
+
+  assert.equal(duplicates.parseMode, 'HTML');
+  assert.equal(duplicates.reply, '<b>Duplicates:</b>\n\n🇦🇷 <b>ARG</b>:\nARG 2 (1)');
+  const duplicatesMenu = await service.handleCallbackData('menu:cards:duplicates', 'owner-a');
+
+  assert.equal(duplicatesMenu.parseMode, 'HTML');
+  assert.equal(duplicatesMenu.reply, duplicates.reply);
   assert.match(
     (await service.handleMessage('duplicates arg', 'owner-a')).reply,
-    /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\)\nDuplicates: ARG 2 x2\.$/,
+    /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\)\n<b>Duplicates:<\/b>\nARG 2 \(1\)$/,
   );
   assert.equal(
     (await service.handleMessage('duplicates bra', 'owner-a')).reply,
@@ -309,16 +319,21 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
 
   const progress = await service.handleMessage('progress', 'owner-a');
 
+  assert.equal(progress.parseMode, 'HTML');
   assert.equal(progress.reply, [
-    'Overall progress',
-    'You have 2/993 unique stickers (0.2%).',
+    '<b>Overall progress</b>',
+    'You have 2/960 unique stickers (0.2%).',
     'Duplicates: 1.',
-    'Started countries: 1/50.',
+    'Started countries: 1/48.',
+    '',
+    '<b>FWC / CC</b>',
+    '🏆 <b>FWC</b>: 0/19 (0%)',
+    '🥤 <b>CC</b>: 0/14 (0%)',
   ].join('\n'));
-  assert.equal(
-    (await service.handleCallbackData('menu:cards:progress', 'owner-a')).reply,
-    progress.reply,
-  );
+  const progressMenu = await service.handleCallbackData('menu:cards:progress', 'owner-a');
+
+  assert.equal(progressMenu.parseMode, 'HTML');
+  assert.equal(progressMenu.reply, progress.reply);
 
   assert.equal((await service.handleMessage('rm arg4', 'owner-a')).reply, 'ARG 4 removed. You now have 0.');
   assert.equal(await repository.getQuantity('owner-a', ARG4), 0);
@@ -364,6 +379,34 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
 
   assert.match(country.reply, /<b>Japan \(JPN\)<\/b>\n1\/20 \(5%\)/);
   assert.match(country.reply, /JPN 10/);
+});
+
+test('any-number lists only real countries and progress separates FWC and CC', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  await repository.adjustQuantity('owner-a', ARG1, 1);
+  await repository.adjustQuantity('owner-a', FWC9, 2);
+  await repository.adjustQuantity('owner-a', CC1, 1);
+
+  const any = await service.handleMessage('any1', 'owner-a');
+
+  assert.equal(any.parsed.intent, 'anyNumber');
+  assert.equal(any.parseMode, 'HTML');
+  assert.match(any.reply, /🇦🇷 <b>ARG<\/b>: ✅/);
+  assert.match(any.reply, /🇧🇷 <b>BRA<\/b>: ❌/);
+  assert.doesNotMatch(any.reply, /\bFWC\b/);
+  assert.doesNotMatch(any.reply, /\bCC\b/);
+
+  const progress = await service.handleMessage('progress', 'owner-a');
+
+  assert.equal(progress.parseMode, 'HTML');
+  assert.match(progress.reply, /You have 1\/960 unique stickers \(0\.1%\)\./);
+  assert.match(progress.reply, /Duplicates: 0\./);
+  assert.match(progress.reply, /Started countries: 1\/48\./);
+  assert.match(progress.reply, /🏆 <b>FWC<\/b>: 1\/19 \(5\.3%\) · Duplicates: 1/);
+  assert.match(progress.reply, /🥤 <b>CC<\/b>: 1\/14 \(7\.1%\)/);
 });
 
 test('add accepts multiple stickers in one message', async () => {
@@ -534,13 +577,22 @@ test('friend requests unlock friend duplicates and friend-only marketplace, with
   assert.equal(await repository.areFriends('owner-a', 'owner-b'), true);
   assert.match((await service.handleMessage('friends', 'owner-a')).reply, /- @collector_b/);
 
+  const friendDuplicates = await service.handleMessage('dupes @collector_b arg5', 'owner-a');
+
+  assert.equal(friendDuplicates.parseMode, 'HTML');
+  assert.equal(friendDuplicates.reply, '<b>@collector_b</b>\n\nARG 5 (1)');
+
+  const friendsDuplicates = await service.handleMessage('friends -duplicates arg5', 'owner-a');
+
+  assert.equal(friendsDuplicates.parseMode, 'HTML');
+  assert.equal(friendsDuplicates.reply, '<b>Friends duplicates:</b>\n\n<b>@collector_b</b>\nARG 5 (1)');
+
+  const friendsDuplicatesMenu = await service.handleCallbackData('menu:friends:duplicates', 'owner-a');
+
+  assert.equal(friendsDuplicatesMenu.parseMode, 'HTML');
   assert.equal(
-    (await service.handleMessage('dupes @collector_b arg5', 'owner-a')).reply,
-    '@collector_b duplicates: ARG 5 x2.',
-  );
-  assert.equal(
-    (await service.handleMessage('friends -duplicates arg5', 'owner-a')).reply,
-    'Friends duplicates:\n@collector_b: ARG 5 x2',
+    friendsDuplicatesMenu.reply,
+    '<b>Friends duplicates:</b>\n\n<b>@collector_b</b>\n🇦🇷 <b>ARG</b>:\nARG 2 (1)\nARG 5 (1)',
   );
 
   assert.equal(
@@ -594,8 +646,8 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
   assert.equal(allCountries.reply, [
     'Compare Alice Album with Bob Album from @collector_b.',
     'Country: all.',
-    '@collector_b can give you: ARG 10 x1.',
-    'You can give @collector_b: ARG 1 x1, BRA 4 x1.',
+    '@collector_b can give you: ARG 10 (1).',
+    'You can give @collector_b: ARG 1 (1), BRA 4 (1).',
   ].join('\n'));
 
   const chooseScopedWithNames = await service.handleMessage('compare arg @collector_b -names', 'owner-a');
@@ -608,8 +660,8 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
   assert.equal(argWithNames.reply, [
     'Compare Alice Album with Bob Album from @collector_b.',
     'Country: ARG.',
-    '@collector_b can give you: ARG 10 - Rodrigo De Paul x1.',
-    'You can give @collector_b: ARG 1 x1.',
+    '@collector_b can give you: ARG 10 - Rodrigo De Paul (1).',
+    'You can give @collector_b: ARG 1 (1).',
   ].join('\n'));
 
   assert.equal(

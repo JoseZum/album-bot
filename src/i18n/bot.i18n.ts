@@ -69,6 +69,7 @@ type TranslationKey =
   | 'countryComplete'
   | 'duplicatesNone'
   | 'duplicatesCountryNone'
+  | 'duplicatesTitle'
   | 'duplicatesList'
   | 'generalProgressTitle'
   | 'generalProgressOwned'
@@ -217,6 +218,7 @@ const enTranslations: Record<TranslationKey, string> = {
   countryComplete: 'Complete!',
   duplicatesNone: 'You do not have duplicate stickers.',
   duplicatesCountryNone: 'You do not have duplicates from {countryCode}.',
+  duplicatesTitle: 'Duplicates:',
   duplicatesList: 'Duplicates: {stickers}.',
   generalProgressTitle: 'Overall progress',
   generalProgressOwned: 'You have {owned}/{total} unique stickers ({percentage}).',
@@ -418,6 +420,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     countryComplete: '¡Completo!',
     duplicatesNone: 'No tienes estampas duplicadas.',
     duplicatesCountryNone: 'No tienes duplicadas de {countryCode}.',
+    duplicatesTitle: 'Duplicadas:',
     duplicatesList: 'Duplicadas: {stickers}.',
     generalProgressTitle: 'Progreso general',
     generalProgressOwned: 'Tienes {owned}/{total} únicas ({percentage}).',
@@ -617,6 +620,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     countryComplete: '已完成！',
     duplicatesNone: '你没有重复贴纸。',
     duplicatesCountryNone: '你没有 {countryCode} 的重复贴纸。',
+    duplicatesTitle: '重复贴纸：',
     duplicatesList: '重复贴纸：{stickers}。',
     generalProgressTitle: '总体进度',
     generalProgressOwned: '你有 {owned}/{total} 张唯一贴纸（{percentage}）。',
@@ -786,6 +790,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     countryComplete: 'Complet !',
     duplicatesNone: "Vous n'avez pas d'images en double.",
     duplicatesCountryNone: "Vous n'avez pas de doublons de {countryCode}.",
+    duplicatesTitle: 'Doublons :',
     duplicatesList: 'Doublons : {stickers}.',
     generalProgressTitle: 'Progression globale',
     generalProgressDuplicates: 'Doublons : {duplicates}.',
@@ -915,6 +920,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     countryComplete: 'Completo!',
     duplicatesNone: 'Non hai immagini duplicate.',
     duplicatesCountryNone: 'Non hai duplicati da {countryCode}.',
+    duplicatesTitle: 'Duplicati:',
     duplicatesList: 'Duplicati: {stickers}.',
     generalProgressTitle: 'Progresso complessivo',
     generalProgressDuplicates: 'Duplicati: {duplicates}.',
@@ -1045,6 +1051,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     countryComplete: 'Completo!',
     duplicatesNone: 'Você não tem figurinhas duplicadas.',
     duplicatesCountryNone: 'Você não tem duplicadas de {countryCode}.',
+    duplicatesTitle: 'Duplicadas:',
     duplicatesList: 'Duplicadas: {stickers}.',
     generalProgressTitle: 'Progresso geral',
     generalProgressDuplicates: 'Duplicadas: {duplicates}.',

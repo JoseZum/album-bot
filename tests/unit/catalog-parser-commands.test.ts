@@ -178,13 +178,23 @@ test('parser detects missing and duplicate queries with optional country scope',
   });
 });
 
-test('parser detects progress, start, language, undo, and help commands', () => {
+test('parser detects progress, any-number, start, language, undo, and help commands', () => {
   assert.deepEqual(parseStickerMessage('/progress'), {
     intent: 'progress',
     showNames: false,
   });
   assert.deepEqual(parseStickerMessage('stats --names'), {
     intent: 'progress',
+    showNames: true,
+  });
+  assert.deepEqual(parseStickerMessage('any1'), {
+    intent: 'anyNumber',
+    number: 1,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('/any 10 --names'), {
+    intent: 'anyNumber',
+    number: 10,
     showNames: true,
   });
   assert.deepEqual(parseStickerMessage('album'), {
@@ -278,6 +288,10 @@ test('parser detects friend commands and friend duplicate scopes', () => {
   assert.deepEqual(parseStickerMessage('friends -duplicates arg5'), {
     intent: 'friendsDuplicates',
     sticker: ARG5,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('friends -duplicates'), {
+    intent: 'friendsDuplicates',
     showNames: false,
   });
   assert.deepEqual(parseStickerMessage('friends -duplicates arg'), {

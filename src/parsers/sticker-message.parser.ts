@@ -26,6 +26,7 @@ export type ParsedBotMessage =
   | { intent: 'marketplaceSearch'; search: MarketplaceSearch; showNames: boolean }
   | { intent: 'missing'; countryCode?: string; showNames: boolean }
   | { intent: 'duplicates'; countryCode?: string; sticker?: StickerRef; targetUsername?: string; showNames: boolean }
+  | { intent: 'anyNumber'; number: number; showNames: boolean }
   | { intent: 'friendsList'; showNames: boolean }
   | { intent: 'friendAdd'; targetUsername: string; showNames: boolean }
   | { intent: 'friendRemove'; targetUsername: string; showNames: boolean }
@@ -684,6 +685,16 @@ const parseAlbumCommand = (
 export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
   const originalText = rawText.trim();
   const { text, showNames } = stripNameFlag(originalText);
+  const anyNumberMatch = /^\/?any\s*(\d{1,3})$/i.exec(text);
+
+  if (anyNumberMatch) {
+    return {
+      intent: 'anyNumber',
+      number: Number(anyNumberMatch[1]),
+      showNames,
+    };
+  }
+
   const duplicatesUserMatch = /^\/?(?:duplicates|dups|dupes)\s+@([a-z0-9_]{5,32})(?:\s+(.+))?$/i.exec(text);
 
   if (duplicatesUserMatch) {
