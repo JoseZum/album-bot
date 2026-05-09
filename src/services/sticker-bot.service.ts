@@ -437,6 +437,21 @@ export class StickerBotService {
     switch (callbackData) {
       case 'menu:home':
         return this.mainMenuReply(ownerId, language);
+      case 'menu:cards':
+        return this.cardsMenuReply(ownerId, language);
+      case 'menu:cards:progress':
+        return this.cardsMenuAlbumAction(ownerId, language, async () => ({
+          reply: await this.showProgress(ownerId, language),
+        }));
+      case 'menu:cards:duplicates':
+        return this.cardsMenuAlbumAction(ownerId, language, async () => ({
+          reply: await this.showDuplicates(ownerId, undefined, undefined, false, language),
+          parseMode: 'HTML',
+        }));
+      case 'menu:cards:add-remove':
+        return this.cardsMenuReply(ownerId, language, 'cardsAddRemoveBody');
+      case 'menu:cards:missing':
+        return this.cardsMenuReply(ownerId, language, 'cardsMissingBody');
       case 'menu:albums':
         return this.withMenuNavigation(
           await this.startMenuReply(ownerId, language),
@@ -2059,15 +2074,73 @@ export class StickerBotService {
       parseMode: 'HTML',
       replyMarkup: this.inlineKeyboard([
         [
+          this.menuButton(t(language, 'buttonMenuCards'), 'menu:cards'),
           this.menuButton(t(language, 'buttonMenuAlbums'), 'menu:albums'),
-          this.menuButton(t(language, 'buttonMenuFriends'), 'menu:friends'),
         ],
         [
+          this.menuButton(t(language, 'buttonMenuFriends'), 'menu:friends'),
           this.menuButton(t(language, 'buttonMenuMarketplace'), 'menu:marketplace'),
+        ],
+        [
           this.menuButton(t(language, 'buttonMenuHelp'), 'menu:help'),
         ],
       ]),
     };
+  }
+
+  private async cardsMenuReply(
+    ownerId: string,
+    language: BotLanguage,
+    bodyKey: 'cardsMenuBody' | 'cardsAddRemoveBody' | 'cardsMissingBody' = 'cardsMenuBody',
+  ): Promise<BotActionResult> {
+    const activeAlbum = await this.repository.getActiveAlbum(ownerId);
+    const lines = [
+      `<b>${escapeTelegramHtml(t(language, 'cardsMenuTitle'))}</b>`,
+      activeAlbum
+        ? t(language, 'activeAlbumLine', { albumName: escapeTelegramHtml(activeAlbum.name) })
+        : t(language, 'noActiveAlbum'),
+      '',
+      t(language, bodyKey),
+    ];
+
+    return {
+      reply: lines.join('\n'),
+      parseMode: 'HTML',
+      replyMarkup: this.inlineKeyboard([
+        [
+          this.menuButton(t(language, 'buttonProgress'), 'menu:cards:progress'),
+          this.menuButton(t(language, 'buttonDuplicates'), 'menu:cards:duplicates'),
+        ],
+        [
+          this.menuButton(t(language, 'buttonAddRemove'), 'menu:cards:add-remove'),
+          this.menuButton(t(language, 'buttonMissing'), 'menu:cards:missing'),
+        ],
+        [this.menuButton(t(language, 'buttonBack'), 'menu:home')],
+      ]),
+    };
+  }
+
+  private async cardsMenuAlbumAction(
+    ownerId: string,
+    language: BotLanguage,
+    action: () => Promise<BotActionResult>,
+  ): Promise<BotActionResult> {
+    if (!await this.repository.hasActiveAlbum(ownerId)) {
+      const menu = await this.cardsMenuReply(ownerId, language);
+
+      return {
+        ...menu,
+        reply: `${t(language, 'commandRequiresActiveAlbum')}\n\n${menu.reply}`,
+      };
+    }
+
+    return this.withMenuNavigation(
+      await action(),
+      [[
+        this.menuButton(t(language, 'buttonMenuCards'), 'menu:cards'),
+        this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+      ]],
+    );
   }
 
   private async friendsMenuReply(ownerId: string, language: BotLanguage): Promise<BotActionResult> {

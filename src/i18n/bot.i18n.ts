@@ -123,6 +123,7 @@ type TranslationKey =
   | 'friendDuplicatesNone'
   | 'friendDuplicatesList'
   | 'albumActionsTitle'
+  | 'buttonMenuCards'
   | 'buttonMenuAlbums'
   | 'buttonMenuFriends'
   | 'buttonMenuMarketplace'
@@ -134,6 +135,10 @@ type TranslationKey =
   | 'buttonMenuMyTrades'
   | 'buttonMenuFriendOffers'
   | 'marketplaceMenuTitle'
+  | 'cardsMenuTitle'
+  | 'cardsMenuBody'
+  | 'cardsAddRemoveBody'
+  | 'cardsMissingBody'
   | 'buttonAddRemove'
   | 'buttonProgress'
   | 'buttonDuplicates'
@@ -266,6 +271,7 @@ const enTranslations: Record<TranslationKey, string> = {
   friendDuplicatesNone: '{username} has no matching duplicates.',
   friendDuplicatesList: '{username} duplicates: {stickers}.',
   albumActionsTitle: 'What do you want to do?',
+  buttonMenuCards: 'Cards',
   buttonMenuAlbums: 'Albums',
   buttonMenuFriends: 'Friends',
   buttonMenuMarketplace: 'Marketplace',
@@ -277,6 +283,29 @@ const enTranslations: Record<TranslationKey, string> = {
   buttonMenuMyTrades: 'My Trades',
   buttonMenuFriendOffers: 'Friend Offers',
   marketplaceMenuTitle: 'Marketplace menu',
+  cardsMenuTitle: 'Cards',
+  cardsMenuBody: [
+    'Most-used commands:',
+    '<code>arg4</code> - check a card',
+    '<code>add arg4</code> - add',
+    '<code>rm arg4</code> - remove',
+    '<code>undo</code> - undo the last change',
+  ].join('\n'),
+  cardsAddRemoveBody: [
+    'Add, remove, and check cards:',
+    '<code>arg4</code> - check a card',
+    '<code>add arg4</code> - add a card',
+    '<code>rm arg4</code> - remove a card',
+    '<code>undo</code> - undo the last change',
+  ].join('\n'),
+  cardsMissingBody: [
+    'Progress and country views:',
+    '<code>progress</code> - overall progress',
+    '<code>duplicates</code> - duplicates',
+    '<code>arg</code> - country overview',
+    '<code>missing arg</code> - missing from a country',
+    '<code>page arg</code> - album page for a country',
+  ].join('\n'),
   buttonAddRemove: 'Add/Remove Stickers',
   buttonProgress: 'Progress',
   buttonDuplicates: 'Duplicates',
@@ -443,6 +472,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     friendDuplicatesNone: '{username} no tiene duplicadas que coincidan.',
     friendDuplicatesList: 'Duplicadas de {username}: {stickers}.',
     albumActionsTitle: '¿Qué quieres hacer?',
+    buttonMenuCards: 'Postales',
     buttonMenuAlbums: 'Álbumes',
     buttonMenuFriends: 'Amigos',
     buttonMenuMarketplace: 'Mercado',
@@ -454,6 +484,29 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     buttonMenuMyTrades: 'Mis intercambios',
     buttonMenuFriendOffers: 'Ofertas de amigos',
     marketplaceMenuTitle: 'Menú del mercado',
+    cardsMenuTitle: 'Postales',
+    cardsMenuBody: [
+      'Lo mas usado:',
+      '<code>arg4</code> - ver una estampa',
+      '<code>add arg4</code> - agregar',
+      '<code>rm arg4</code> - quitar',
+      '<code>undo</code> - deshacer el ultimo cambio',
+    ].join('\n'),
+    cardsAddRemoveBody: [
+      'Agregar, quitar y consultar:',
+      '<code>arg4</code> - ver una estampa',
+      '<code>add arg4</code> - agregar una estampa',
+      '<code>rm arg4</code> - quitar una estampa',
+      '<code>undo</code> - deshacer el ultimo cambio',
+    ].join('\n'),
+    cardsMissingBody: [
+      'Progreso y vistas por pais:',
+      '<code>progress</code> - progreso general',
+      '<code>duplicates</code> - repetidas',
+      '<code>arg</code> - ver un pais',
+      '<code>missing arg</code> - faltantes de un pais',
+      '<code>page arg</code> - pagina del album',
+    ].join('\n'),
     buttonAddRemove: 'Agregar/Quitar estampas',
     buttonProgress: 'Progreso',
     buttonDuplicates: 'Repetidas',
@@ -618,6 +671,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     friendDuplicatesNone: '{username} 没有匹配的重复贴纸。',
     friendDuplicatesList: '{username} 的重复贴纸：{stickers}。',
     albumActionsTitle: '你想做什么？',
+    buttonMenuCards: '贴纸',
     buttonMenuAlbums: '相册',
     buttonMenuFriends: '好友',
     buttonMenuMarketplace: '市场',
@@ -629,6 +683,29 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     buttonMenuMyTrades: '我的交换',
     buttonMenuFriendOffers: '好友报价',
     marketplaceMenuTitle: '市场菜单',
+    cardsMenuTitle: '贴纸',
+    cardsMenuBody: [
+      '常用命令：',
+      '<code>arg4</code> - 查看一张贴纸',
+      '<code>add arg4</code> - 添加',
+      '<code>rm arg4</code> - 删除',
+      '<code>undo</code> - 撤销上一次变更',
+    ].join('\n'),
+    cardsAddRemoveBody: [
+      '添加、删除和查询：',
+      '<code>arg4</code> - 查看一张贴纸',
+      '<code>add arg4</code> - 添加一张贴纸',
+      '<code>rm arg4</code> - 删除一张贴纸',
+      '<code>undo</code> - 撤销上一次变更',
+    ].join('\n'),
+    cardsMissingBody: [
+      '进度和国家视图：',
+      '<code>progress</code> - 总进度',
+      '<code>duplicates</code> - 重复贴纸',
+      '<code>arg</code> - 查看一个国家',
+      '<code>missing arg</code> - 查看某个国家缺少的贴纸',
+      '<code>page arg</code> - 查看国家所在页码',
+    ].join('\n'),
     buttonAddRemove: '添加/移除贴纸',
     buttonProgress: '进度',
     buttonDuplicates: '重复',
@@ -724,6 +801,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     friendDuplicatesNone: "{username} n'a pas de doublons correspondants.",
     friendDuplicatesList: 'Doublons de {username} : {stickers}.',
     albumActionsTitle: 'Que voulez-vous faire ?',
+    buttonMenuCards: 'Images',
     buttonMenuAlbums: 'Albums',
     buttonMenuFriends: 'Amis',
     buttonMenuMarketplace: 'Marché',
@@ -735,6 +813,29 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     buttonMenuMyTrades: 'Mes échanges',
     buttonMenuFriendOffers: 'Offres des amis',
     marketplaceMenuTitle: 'Menu du marché',
+    cardsMenuTitle: 'Images',
+    cardsMenuBody: [
+      'Commandes principales :',
+      '<code>arg4</code> - voir une image',
+      '<code>add arg4</code> - ajouter',
+      '<code>rm arg4</code> - retirer',
+      '<code>undo</code> - annuler le dernier changement',
+    ].join('\n'),
+    cardsAddRemoveBody: [
+      'Ajouter, retirer et verifier :',
+      '<code>arg4</code> - voir une image',
+      '<code>add arg4</code> - ajouter une image',
+      '<code>rm arg4</code> - retirer une image',
+      '<code>undo</code> - annuler le dernier changement',
+    ].join('\n'),
+    cardsMissingBody: [
+      'Progression et vues par pays :',
+      '<code>progress</code> - progression globale',
+      '<code>duplicates</code> - doublons',
+      '<code>arg</code> - voir un pays',
+      '<code>missing arg</code> - manquants d un pays',
+      '<code>page arg</code> - page de l album',
+    ].join('\n'),
     buttonAddRemove: 'Ajouter/Retirer',
     buttonProgress: 'Progression',
     buttonDuplicates: 'Doublons',
@@ -829,6 +930,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     friendDuplicatesNone: '{username} non ha duplicati corrispondenti.',
     friendDuplicatesList: 'Duplicati di {username}: {stickers}.',
     albumActionsTitle: 'Cosa vuoi fare?',
+    buttonMenuCards: 'Figurine',
     buttonMenuAlbums: 'Album',
     buttonMenuFriends: 'Amici',
     buttonMenuMarketplace: 'Mercato',
@@ -840,6 +942,29 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     buttonMenuMyTrades: 'I miei scambi',
     buttonMenuFriendOffers: 'Offerte amici',
     marketplaceMenuTitle: 'Menu mercato',
+    cardsMenuTitle: 'Figurine',
+    cardsMenuBody: [
+      'Comandi principali:',
+      '<code>arg4</code> - vedi una figurina',
+      '<code>add arg4</code> - aggiungi',
+      '<code>rm arg4</code> - rimuovi',
+      '<code>undo</code> - annulla l ultimo cambio',
+    ].join('\n'),
+    cardsAddRemoveBody: [
+      'Aggiungi, rimuovi e controlla:',
+      '<code>arg4</code> - vedi una figurina',
+      '<code>add arg4</code> - aggiungi una figurina',
+      '<code>rm arg4</code> - rimuovi una figurina',
+      '<code>undo</code> - annulla l ultimo cambio',
+    ].join('\n'),
+    cardsMissingBody: [
+      'Progresso e viste per paese:',
+      '<code>progress</code> - progresso generale',
+      '<code>duplicates</code> - duplicati',
+      '<code>arg</code> - vedi un paese',
+      '<code>missing arg</code> - mancanti di un paese',
+      '<code>page arg</code> - pagina dell album',
+    ].join('\n'),
     buttonAddRemove: 'Aggiungi/Rimuovi',
     buttonProgress: 'Progresso',
     buttonDuplicates: 'Duplicati',
@@ -935,6 +1060,7 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     friendDuplicatesNone: '{username} não tem duplicadas correspondentes.',
     friendDuplicatesList: 'Duplicadas de {username}: {stickers}.',
     albumActionsTitle: 'O que você quer fazer?',
+    buttonMenuCards: 'Cards',
     buttonMenuAlbums: 'Álbuns',
     buttonMenuFriends: 'Amigos',
     buttonMenuMarketplace: 'Mercado',
@@ -946,6 +1072,29 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     buttonMenuMyTrades: 'Minhas trocas',
     buttonMenuFriendOffers: 'Ofertas de amigos',
     marketplaceMenuTitle: 'Menu do mercado',
+    cardsMenuTitle: 'Cards',
+    cardsMenuBody: [
+      'Comandos principais:',
+      '<code>arg4</code> - ver uma figurinha',
+      '<code>add arg4</code> - adicionar',
+      '<code>rm arg4</code> - remover',
+      '<code>undo</code> - desfazer a ultima alteracao',
+    ].join('\n'),
+    cardsAddRemoveBody: [
+      'Adicionar, remover e consultar:',
+      '<code>arg4</code> - ver uma figurinha',
+      '<code>add arg4</code> - adicionar uma figurinha',
+      '<code>rm arg4</code> - remover uma figurinha',
+      '<code>undo</code> - desfazer a ultima alteracao',
+    ].join('\n'),
+    cardsMissingBody: [
+      'Progresso e vistas por pais:',
+      '<code>progress</code> - progresso geral',
+      '<code>duplicates</code> - duplicadas',
+      '<code>arg</code> - ver um pais',
+      '<code>missing arg</code> - faltando de um pais',
+      '<code>page arg</code> - pagina do album',
+    ].join('\n'),
     buttonAddRemove: 'Adicionar/Remover',
     buttonProgress: 'Progresso',
     buttonDuplicates: 'Duplicadas',

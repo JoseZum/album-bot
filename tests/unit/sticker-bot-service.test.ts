@@ -216,10 +216,28 @@ test('menu command shows the general navigation with friends and marketplace sec
 
   assert.equal(mainMenu.parsed.intent, 'menu');
   assert.match(mainMenu.reply, /^<b>What do you want to do\?<\/b>\nNo active album yet\./);
+  assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:cards/);
   assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:albums/);
   assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:friends/);
   assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:marketplace/);
   assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:help/);
+
+  const cardsMenu = await service.handleCallbackData('menu:cards', 'owner-a');
+
+  assert.match(cardsMenu.reply, /^<b>Cards<\/b>\nNo active album yet\./);
+  assert.match(cardsMenu.reply, /<code>arg4<\/code> - check a card/);
+  assert.match(cardsMenu.reply, /<code>add arg4<\/code> - add/);
+  assert.match(cardsMenu.reply, /<code>rm arg4<\/code> - remove/);
+  assert.match(stringifyMarkup(cardsMenu.replyMarkup), /menu:cards:progress/);
+  assert.match(stringifyMarkup(cardsMenu.replyMarkup), /menu:cards:duplicates/);
+  assert.match(stringifyMarkup(cardsMenu.replyMarkup), /menu:cards:add-remove/);
+  assert.match(stringifyMarkup(cardsMenu.replyMarkup), /menu:cards:missing/);
+  assert.match(stringifyMarkup(cardsMenu.replyMarkup), /menu:home/);
+
+  const cardsBlockedProgress = await service.handleCallbackData('menu:cards:progress', 'owner-a');
+
+  assert.match(cardsBlockedProgress.reply, /^Create or select an album first\./);
+  assert.match(cardsBlockedProgress.reply, /<b>Cards<\/b>/);
 
   const friendsMenu = await service.handleCallbackData('menu:friends', 'owner-a');
 
@@ -272,6 +290,10 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   assert.match(country.reply, /ARG ⠀1 ❌\n/);
 
   assert.equal((await service.handleMessage('duplicates', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
+  assert.equal(
+    (await service.handleCallbackData('menu:cards:duplicates', 'owner-a')).reply,
+    'Duplicates: ARG 2 x2.',
+  );
   assert.match(
     (await service.handleMessage('duplicates arg', 'owner-a')).reply,
     /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\)\nDuplicates: ARG 2 x2\.$/,
@@ -293,6 +315,10 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
     'Duplicates: 1.',
     'Started countries: 1/50.',
   ].join('\n'));
+  assert.equal(
+    (await service.handleCallbackData('menu:cards:progress', 'owner-a')).reply,
+    progress.reply,
+  );
 
   assert.equal((await service.handleMessage('rm arg4', 'owner-a')).reply, 'ARG 4 removed. You now have 0.');
   assert.equal(await repository.getQuantity('owner-a', ARG4), 0);
