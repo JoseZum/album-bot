@@ -41,6 +41,7 @@ export type ParsedBotMessage =
   | { intent: 'albumDelete'; selector?: string; showNames: boolean }
   | { intent: 'albumLeave'; showNames: boolean }
   | { intent: 'start'; showNames: boolean }
+  | { intent: 'menu'; showNames: boolean }
   | { intent: 'language'; showNames: boolean }
   | { intent: 'undo'; showNames: boolean }
   | { intent: 'help'; showNames: boolean }
@@ -54,6 +55,7 @@ type LeadingIntent =
   | 'progress'
   | 'page'
   | 'start'
+  | 'menu'
   | 'language'
   | 'undo'
   | 'help';
@@ -64,7 +66,8 @@ const MISSING_ALIASES = new Set(['missing']);
 const DUPLICATES_ALIASES = new Set(['duplicates', 'dups', 'dupes']);
 const PROGRESS_ALIASES = new Set(['progress', 'stats']);
 const PAGE_ALIASES = new Set(['page', 'pagina']);
-const START_ALIASES = new Set(['start', 'menu', 'album', 'albums']);
+const START_ALIASES = new Set(['start']);
+const MENU_ALIASES = new Set(['menu']);
 const LANGUAGE_ALIASES = new Set(['language', 'lang']);
 const UNDO_ALIASES = new Set(['undo']);
 const HELP_ALIASES = new Set(['help']);
@@ -129,6 +132,10 @@ const extractLeadingIntent = (
 
   if (START_ALIASES.has(firstToken)) {
     return { intent: 'start', remainder };
+  }
+
+  if (MENU_ALIASES.has(firstToken)) {
+    return { intent: 'menu', remainder };
   }
 
   if (LANGUAGE_ALIASES.has(firstToken)) {
@@ -763,6 +770,7 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
     || intent === 'progress'
     || intent === 'help'
     || intent === 'start'
+    || intent === 'menu'
     || intent === 'language'
   ) {
     return { intent, showNames };

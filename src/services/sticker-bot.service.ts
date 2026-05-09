@@ -78,34 +78,24 @@ type TradeCandidate = {
   extraCount: number;
 };
 
+type InlineKeyboardButton = {
+  text: string;
+  callback_data: string;
+};
+
+type InlineKeyboardRow = InlineKeyboardButton[];
+
+type InlineKeyboardMarkup = {
+  inline_keyboard: InlineKeyboardRow[];
+};
+
 const escapeTelegramHtml = (value: string): string =>
   value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-const albumActionsKeyboard = (language: BotLanguage) => ({
-  keyboard: [
-    [{ text: t(language, 'buttonAddRemove') }],
-    [
-      { text: t(language, 'buttonProgress') },
-      { text: t(language, 'buttonDuplicates') },
-      { text: t(language, 'buttonMissing') },
-    ],
-    [{ text: t(language, 'buttonCompare') }],
-  ],
-  resize_keyboard: true,
-  one_time_keyboard: true,
-});
 
-const showAlbumActions = (language: BotLanguage): BotActionResult => {
-  return {
-    text: t(language, 'albumActionsTitle'),
-    options: {
-      reply_markup: albumActionsKeyboard(language),
-    },
-  };
-};
 
 const compressRanges = (nums: number[]): string => {
   if (nums.length === 0) return '—';
@@ -232,7 +222,19 @@ export class StickerBotService {
         };
       }
 
-      return { reply: t(language, 'languageSaved') };
+      const menu = await this.mainMenuReply(ownerId, language);
+
+      return {
+        reply: `${t(language, 'languageSaved')}\n\n${menu.reply}`,
+        replyMarkup: menu.replyMarkup,
+        parseMode: menu.parseMode,
+      };
+    }
+
+    const menuResult = await this.handleMenuCallbackData(callbackData, ownerId);
+
+    if (menuResult) {
+      return menuResult;
     }
 
     const albumDeleteMatch = /^album:delete:([0-9a-f-]{36}):(confirm|cancel)$/i.exec(callbackData);
@@ -274,9 +276,10 @@ export class StickerBotService {
           return { reply: t(language, 'unknownAlbumAction') };
         }
 
-        await this.repository.selectAlbum(ownerId, album.id);
-
-        return showAlbumActions(language);
+        return {
+          reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
+          parseMode: 'HTML',
+        };
       }
 
       const album = await this.repository.setActiveAlbum(ownerId, value);
@@ -421,6 +424,88 @@ export class StickerBotService {
     };
   }
 
+  private async handleMenuCallbackData(
+    callbackData: string,
+    ownerId: string,
+  ): Promise<BotActionResult | null> {
+    if (!callbackData.startsWith('menu:')) {
+      return null;
+    }
+
+    const language = await this.getLanguage(ownerId) ?? 'en';
+
+    switch (callbackData) {
+      case 'menu:home':
+        return this.mainMenuReply(ownerId, language);
+      case 'menu:albums':
+        return this.withMenuNavigation(
+          await this.startMenuReply(ownerId, language),
+          [[this.menuButton(t(language, 'buttonBack'), 'menu:home')]],
+        );
+      case 'menu:friends':
+        return this.friendsMenuReply(ownerId, language);
+      case 'menu:friends:duplicates':
+        return {
+          reply: await this.showFriendsDuplicates(ownerId, undefined, undefined, false, language),
+          replyMarkup: this.inlineKeyboard([
+            [
+              this.menuButton(t(language, 'buttonMenuFriends'), 'menu:friends'),
+              this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+            ],
+          ]),
+        };
+      case 'menu:friends:trades':
+        return this.withMenuNavigation(
+          await this.searchMarketplace(ownerId, { friendsOnly: true }),
+          [[
+            this.menuButton(t(language, 'buttonMenuFriends'), 'menu:friends'),
+            this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+          ]],
+        );
+      case 'menu:marketplace':
+        return this.marketplaceMenuReply(language);
+      case 'menu:marketplace:all':
+        return this.withMenuNavigation(
+          await this.searchMarketplace(ownerId, {}),
+          [[
+            this.menuButton(t(language, 'buttonMenuMarketplace'), 'menu:marketplace'),
+            this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+          ]],
+        );
+      case 'menu:marketplace:mine':
+        return this.withMenuNavigation(
+          await this.searchMarketplace(ownerId, { mineOnly: true }),
+          [[
+            this.menuButton(t(language, 'buttonMenuMarketplace'), 'menu:marketplace'),
+            this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+          ]],
+        );
+      case 'menu:marketplace:trades':
+        return this.withMenuNavigation(
+          await this.listMyTrades(ownerId),
+          [[
+            this.menuButton(t(language, 'buttonMenuMarketplace'), 'menu:marketplace'),
+            this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+          ]],
+        );
+      case 'menu:marketplace:friends':
+        return this.withMenuNavigation(
+          await this.searchMarketplace(ownerId, { friendsOnly: true }),
+          [[
+            this.menuButton(t(language, 'buttonMenuMarketplace'), 'menu:marketplace'),
+            this.menuButton(t(language, 'buttonBack'), 'menu:home'),
+          ]],
+        );
+      case 'menu:help':
+        return this.withMenuNavigation(
+          this.helpReply(language),
+          [[this.menuButton(t(language, 'buttonBack'), 'menu:home')]],
+        );
+      default:
+        return { reply: t(language, 'unknownCallback') };
+    }
+  }
+
   private async buildReply(
     parsed: ParsedBotMessage,
     ownerId: string,
@@ -507,6 +592,8 @@ export class StickerBotService {
         return this.leaveAlbum(ownerId, language);
       case 'start':
         return this.startMenuReply(ownerId, language);
+      case 'menu':
+        return this.mainMenuReply(ownerId, language);
       case 'language':
         return this.languageSelectionReply();
       case 'undo':
@@ -1909,10 +1996,107 @@ export class StickerBotService {
     return (await this.repository.getProfile(ownerId))?.language;
   }
 
+  private menuButton(text: string, callbackData: string): InlineKeyboardButton {
+    return {
+      text,
+      callback_data: callbackData,
+    };
+  }
+
+  private inlineKeyboard(rows: InlineKeyboardRow[]): InlineKeyboardMarkup {
+    return { inline_keyboard: rows };
+  }
+
+  private appendInlineKeyboardRows(
+    replyMarkup: unknown,
+    rows: InlineKeyboardRow[],
+  ): InlineKeyboardMarkup {
+    const existingRows = this.isInlineKeyboardMarkup(replyMarkup)
+      ? replyMarkup.inline_keyboard
+      : [];
+
+    return {
+      inline_keyboard: [...existingRows, ...rows],
+    };
+  }
+
+  private withMenuNavigation(
+    result: BotActionResult,
+    rows: InlineKeyboardRow[],
+  ): BotActionResult {
+    return {
+      ...result,
+      replyMarkup: this.appendInlineKeyboardRows(result.replyMarkup, rows),
+    };
+  }
+
+  private isInlineKeyboardMarkup(value: unknown): value is InlineKeyboardMarkup {
+    if (!value || typeof value !== 'object') {
+      return false;
+    }
+
+    return Array.isArray((value as { inline_keyboard?: unknown }).inline_keyboard);
+  }
+
   private languageSelectionReply(): BotActionResult {
     return {
       reply: t('en', 'chooseLanguage'),
       replyMarkup: languageKeyboard,
+    };
+  }
+
+  private async mainMenuReply(ownerId: string, language: BotLanguage): Promise<BotActionResult> {
+    const activeAlbum = await this.repository.getActiveAlbum(ownerId);
+    const lines = [
+      `<b>${escapeTelegramHtml(t(language, 'albumActionsTitle'))}</b>`,
+      activeAlbum
+        ? t(language, 'activeAlbumLine', { albumName: escapeTelegramHtml(activeAlbum.name) })
+        : t(language, 'noActiveAlbum'),
+    ];
+
+    return {
+      reply: lines.join('\n'),
+      parseMode: 'HTML',
+      replyMarkup: this.inlineKeyboard([
+        [
+          this.menuButton(t(language, 'buttonMenuAlbums'), 'menu:albums'),
+          this.menuButton(t(language, 'buttonMenuFriends'), 'menu:friends'),
+        ],
+        [
+          this.menuButton(t(language, 'buttonMenuMarketplace'), 'menu:marketplace'),
+          this.menuButton(t(language, 'buttonMenuHelp'), 'menu:help'),
+        ],
+      ]),
+    };
+  }
+
+  private async friendsMenuReply(ownerId: string, language: BotLanguage): Promise<BotActionResult> {
+    return {
+      reply: await this.listFriends(ownerId, language),
+      replyMarkup: this.inlineKeyboard([
+        [
+          this.menuButton(t(language, 'buttonMenuFriendDuplicates'), 'menu:friends:duplicates'),
+          this.menuButton(t(language, 'buttonMenuFriendOffers'), 'menu:friends:trades'),
+        ],
+        [this.menuButton(t(language, 'buttonBack'), 'menu:home')],
+      ]),
+    };
+  }
+
+  private marketplaceMenuReply(language: BotLanguage): BotActionResult {
+    return {
+      reply: t(language, 'marketplaceMenuTitle'),
+      replyMarkup: this.inlineKeyboard([
+        [
+          this.menuButton(t(language, 'buttonMenuAllOffers'), 'menu:marketplace:all'),
+          this.menuButton(t(language, 'buttonMenuMyOffers'), 'menu:marketplace:mine'),
+        ],
+        [
+          this.menuButton(t(language, 'buttonMenuMyTrades'), 'menu:marketplace:trades'),
+          this.menuButton(t(language, 'buttonMenuFriendOffers'), 'menu:marketplace:friends'),
+        ],
+        [this.menuButton(t(language, 'buttonBack'), 'menu:home')],
+      ]),
     };
   }
 
@@ -2021,9 +2205,10 @@ export class StickerBotService {
       return { reply: t(language, 'albumCreateFailed') };
     }
 
-    await this.repository.selectAlbum(ownerId, album.id);
-
-    return showAlbumActions(language);
+    return {
+      reply: `${t(language, 'albumCreated', { albumName: escapeTelegramHtml(album.name) })}\n\n${t(language, 'firstAlbumHint')}`,
+      parseMode: 'HTML',
+    };
   }
 
   private async selectAlbum(ownerId: string, selector: string, language: BotLanguage): Promise<BotActionResult> {

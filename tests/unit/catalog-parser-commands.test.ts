@@ -191,6 +191,10 @@ test('parser detects progress, start, language, undo, and help commands', () => 
     intent: 'start',
     showNames: false,
   });
+  assert.deepEqual(parseStickerMessage('menu'), {
+    intent: 'menu',
+    showNames: false,
+  });
   assert.deepEqual(parseStickerMessage('/language'), {
     intent: 'language',
     showNames: false,

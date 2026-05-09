@@ -207,6 +207,36 @@ test('start menu, album creation, selection, listing, and album callbacks use th
   assert.equal((await service.handleCallbackData('album:select:not-found', 'owner-a')).reply, 'Album action not found.');
 });
 
+test('menu command shows the general navigation with friends and marketplace sections', async () => {
+  const { service } = await createHarness();
+
+  await service.handleCallbackData('lang:en', 'owner-a');
+
+  const mainMenu = await service.handleMessage('menu', 'owner-a');
+
+  assert.equal(mainMenu.parsed.intent, 'menu');
+  assert.match(mainMenu.reply, /^<b>What do you want to do\?<\/b>\nNo active album yet\./);
+  assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:albums/);
+  assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:friends/);
+  assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:marketplace/);
+  assert.match(stringifyMarkup(mainMenu.replyMarkup), /menu:help/);
+
+  const friendsMenu = await service.handleCallbackData('menu:friends', 'owner-a');
+
+  assert.equal(friendsMenu.reply, 'Friends\nYou do not have friends yet.');
+  assert.match(stringifyMarkup(friendsMenu.replyMarkup), /menu:friends:duplicates/);
+  assert.match(stringifyMarkup(friendsMenu.replyMarkup), /menu:friends:trades/);
+  assert.match(stringifyMarkup(friendsMenu.replyMarkup), /menu:home/);
+
+  const marketplaceMenu = await service.handleCallbackData('menu:marketplace', 'owner-a');
+
+  assert.equal(marketplaceMenu.reply, 'Marketplace menu');
+  assert.match(stringifyMarkup(marketplaceMenu.replyMarkup), /menu:marketplace:all/);
+  assert.match(stringifyMarkup(marketplaceMenu.replyMarkup), /menu:marketplace:mine/);
+  assert.match(stringifyMarkup(marketplaceMenu.replyMarkup), /menu:marketplace:trades/);
+  assert.match(stringifyMarkup(marketplaceMenu.replyMarkup), /menu:marketplace:friends/);
+});
+
 test('add, remove, query, missing, duplicates, progress, and undo replies reflect inventory changes', async () => {
   const { repository, service } = await createHarness();
 
@@ -242,7 +272,10 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   assert.match(country.reply, /ARG ⠀1 ❌\n/);
 
   assert.equal((await service.handleMessage('duplicates', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
-  assert.equal((await service.handleMessage('duplicates arg', 'owner-a')).reply, 'Duplicates: ARG 2 x2.');
+  assert.match(
+    (await service.handleMessage('duplicates arg', 'owner-a')).reply,
+    /^🇦🇷 <b>Argentina \(ARG\)<\/b>\n2\/20 \(10%\)\nDuplicates: ARG 2 x2\.$/,
+  );
   assert.equal(
     (await service.handleMessage('duplicates bra', 'owner-a')).reply,
     'You do not have duplicates from BRA.',
