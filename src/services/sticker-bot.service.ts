@@ -432,7 +432,7 @@ export class StickerBotService {
       case 'marketplaceSearch':
         return this.searchMarketplace(ownerId, parsed.search);
       case 'missing':
-        return { reply: await this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language) };
+        return { reply: await this.showMissing(ownerId, parsed.countryCode, parsed.showNames, language), parseMode: 'HTML' };
       case 'duplicates':
         return {
           reply: parsed.targetUsername
@@ -445,6 +445,7 @@ export class StickerBotService {
               language,
             )
             : await this.showDuplicates(ownerId, parsed.countryCode, parsed.sticker, parsed.showNames, language),
+          parseMode: 'HTML',
         };
       case 'friendsList':
         return { reply: await this.listFriends(ownerId, language) };
