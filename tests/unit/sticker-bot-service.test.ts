@@ -647,7 +647,14 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
     'Compare Alice Album with Bob Album from @collector_b.',
     'Country: all.',
     '@collector_b can give you: ARG 10 (1).',
+    '🇦🇷 <b>ARG</b>:',
+    'ARG 10 (1)',
     'You can give @collector_b: ARG 1 (1), BRA 4 (1).',
+    '🇦🇷 <b>ARG</b>:',
+    'ARG 1 (1)',
+    '',
+    '🇧🇷 <b>BRA</b>:',
+    'BRA 4 (1)',
   ].join('\n'));
 
   const chooseScopedWithNames = await service.handleMessage('compare arg @collector_b -names', 'owner-a');
@@ -661,7 +668,11 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
     'Compare Alice Album with Bob Album from @collector_b.',
     'Country: ARG.',
     '@collector_b can give you: ARG 10 - Rodrigo De Paul (1).',
+    '🇦🇷 <b>ARG</b>:',
+    'ARG 10 - Rodrigo De Paul (1)',
     'You can give @collector_b: ARG 1 (1).',
+    '🇦🇷 <b>ARG</b>:',
+    'ARG 1 (1)',
   ].join('\n'));
 
   assert.equal(

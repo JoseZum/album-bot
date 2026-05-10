@@ -1911,6 +1911,7 @@ export class StickerBotService {
         showNames,
         language,
       }),
+      parseMode: 'HTML',
     };
   }
 
@@ -1951,14 +1952,18 @@ export class StickerBotService {
       return lines.join('\n');
     }
 
-    lines.push(t(options.language, 'compareTheyCanGive', {
-      username: options.targetDisplayName,
-      stickers: this.formatTradeCandidateList(targetCanGive, options.showNames, options.language),
-    }));
-    lines.push(t(options.language, 'compareYouCanGive', {
-      username: options.targetDisplayName,
-      stickers: this.formatTradeCandidateList(activeCanGive, options.showNames, options.language),
-    }));
+    lines.push(
+      `${t(options.language, 'compareTheyCanGive', {
+        username: options.targetDisplayName,
+        stickers: this.formatTradeCandidateList(targetCanGive, options.showNames, options.language),
+      })}\n${this.formatTradeCandidateSections(targetCanGive, options.showNames, options.language)}`,
+    );
+    lines.push(
+      `${t(options.language, 'compareYouCanGive', {
+        username: options.targetDisplayName,
+        stickers: this.formatTradeCandidateList(activeCanGive, options.showNames, options.language),
+      })}\n${this.formatTradeCandidateSections(activeCanGive, options.showNames, options.language)}`,
+    );
 
     return lines.join('\n');
   }
@@ -2007,6 +2012,35 @@ export class StickerBotService {
         `${formatSticker(candidate.sticker, { includeName: showNames })} ${this.formatExtraCount(candidate.extraCount)}`,
       )
       .join(', ');
+  }
+
+  private formatTradeCandidateSections(
+    candidates: TradeCandidate[],
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
+    if (candidates.length === 0) {
+      return t(language, 'compareNone');
+    }
+
+    const sections = new Map<string, TradeCandidate[]>();
+
+    for (const candidate of candidates) {
+      const entries = sections.get(candidate.sticker.countryCode) ?? [];
+      entries.push(candidate);
+      sections.set(candidate.sticker.countryCode, entries);
+    }
+
+    return Array.from(sections.entries())
+      .map(([countryCode, entries]) => [
+        `${getCountryFlag(countryCode)} <b>${countryCode}</b>:`,
+        entries
+          .map((candidate) =>
+            `${formatSticker(candidate.sticker, { includeName: showNames })} ${this.formatExtraCount(candidate.extraCount)}`,
+          )
+          .join('\n'),
+      ].join('\n'))
+      .join('\n\n');
   }
 
   private async getCountryStats(ownerId: string, countryCode: string): Promise<CountryStats | null> {
