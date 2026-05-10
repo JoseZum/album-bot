@@ -241,6 +241,17 @@ function normalizeAlbumName(name: string | undefined): string | undefined {
   return n || undefined;
 }
 
+function buildStickerLookupCandidates(sticker: StickerRef): string[] {
+  const countryCode = sticker.countryCode.toUpperCase();
+  const number = String(sticker.number);
+
+  return [...new Set([
+    `${countryCode}${number}`,
+    `${countryCode}${number.padStart(2, '0')}`,
+    `${countryCode}${number.padStart(3, '0')}`,
+  ])];
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isUuid(value: string): boolean {
@@ -812,6 +823,15 @@ export class CollectionRepository {
       await client.query('BEGIN');
 
       const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizedId);
+      const albumTemplateResult = await client.query<{ album_id: number }>(
+        `SELECT album_id FROM user_albums WHERE id = $1`,
+        [activeAlbumId],
+      );
+      const activeAlbumTemplateId = albumTemplateResult.rows[0]?.album_id;
+
+      if (!activeAlbumTemplateId) {
+        throw new Error('Album activo invalido.');
+      }
 
       // Resolve collector UUID once (needed for history)
       const collectorRow = await client.query<{ id: string }>(
@@ -839,30 +859,33 @@ export class CollectionRepository {
       const codes = uniqueEntries.map((e) => e.sticker.countryCode.toUpperCase());
       const numbers = uniqueEntries.map((e) => e.sticker.number);
       const names = uniqueEntries.map((e) => getCatalogEntry(e.sticker.countryCode)?.name ?? null);
-      const specials = uniqueEntries.map(
-        (e) => `${e.sticker.countryCode.toUpperCase()}${e.sticker.number}`,
-      );
+      const stickerLookupCandidates = uniqueEntries.map((e) => buildStickerLookupCandidates(e.sticker));
+      const specials = stickerLookupCandidates.map((candidates) => candidates[0]);
+      const paddedSpecials = stickerLookupCandidates.map((candidates) => candidates[1] ?? candidates[0]);
+      const triplePaddedSpecials = stickerLookupCandidates.map((candidates) => candidates[2] ?? candidates[0]);
 
       const lookupResult = await client.query<{
         idx: number;
         code: string;
       }>(
         `SELECT idx, s.code
-         FROM unnest($1::text[], $2::int[], $3::text[], $4::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, idx)
-         JOIN stickers s ON s.sticker_number = u.sticker_number
+         FROM unnest($1::text[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, padded_special_key, triple_padded_special_key, idx)
+         JOIN stickers s ON s.album_id = $7 AND s.sticker_number = u.sticker_number
          LEFT JOIN teams t ON t.id = s.team_id
          WHERE t.code = u.country_code
             OR (u.country_name IS NOT NULL AND upper(t.name) = upper(u.country_name))
-            OR upper(s.code) = u.special_key
-            OR regexp_replace(upper(s.subject), '\\s+', '', 'g') = u.special_key`,
-        [codes, numbers, names, specials],
+            OR upper(s.code) IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)
+            OR regexp_replace(upper(s.subject), '\\s+', '', 'g') IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)`,
+        [codes, numbers, names, specials, paddedSpecials, triplePaddedSpecials, activeAlbumTemplateId],
       );
 
       // Map idx (1-based) → sticker DB code; keep first match per idx
       const idxToCode = new Map<number, string>();
       for (const row of lookupResult.rows) {
-        if (!idxToCode.has(row.idx)) {
-          idxToCode.set(row.idx, row.code);
+        const idx = Number(row.idx);
+
+        if (!idxToCode.has(idx)) {
+          idxToCode.set(idx, row.code);
         }
       }
 
@@ -2287,7 +2310,7 @@ export class CollectionRepository {
 
   private async getStickerDbCode(sticker: StickerRef): Promise<string | null> {
     const country = getCatalogEntry(sticker.countryCode);
-    const specialLookup = `${sticker.countryCode.toUpperCase()}${sticker.number}`;
+    const lookupCandidates = buildStickerLookupCandidates(sticker);
     const result = await this.db.query<{ code: string }>(
       `SELECT s.code
        FROM stickers s
@@ -2296,10 +2319,10 @@ export class CollectionRepository {
          AND (
            t.code = $1
            OR ($3::text IS NOT NULL AND upper(t.name) = upper($3))
-           OR upper(s.code) = $4
-           OR regexp_replace(upper(s.subject), '\s+', '', 'g') = $4
+           OR upper(s.code) = ANY($4::text[])
+           OR regexp_replace(upper(s.subject), '\s+', '', 'g') = ANY($4::text[])
          )`,
-      [sticker.countryCode.toUpperCase(), sticker.number, country?.name ?? null, specialLookup],
+      [sticker.countryCode.toUpperCase(), sticker.number, country?.name ?? null, lookupCandidates],
     );
 
     return result.rows[0]?.code ?? null;

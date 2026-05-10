@@ -22,6 +22,8 @@ const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
 const CC1: StickerRef = { countryCode: 'CC', number: 1 };
 const FWC9: StickerRef = { countryCode: 'FWC', number: 9 };
 const FRA9: StickerRef = { countryCode: 'FRA', number: 9 };
+const IRN1: StickerRef = { countryCode: 'IRN', number: 1 };
+const IRN2: StickerRef = { countryCode: 'IRN', number: 2 };
 const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 
@@ -435,6 +437,22 @@ test('add accepts multiple stickers in one message', async () => {
   assert.equal(await repository.getQuantity('owner-a', ARG5), 2);
   assert.equal(await repository.getQuantity('owner-a', FRA9), 2);
   assert.equal(await repository.getQuantity('owner-a', BRA3), 2);
+});
+
+test('add accepts spaced IRN stickers in one message', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  const batch = await service.handleMessage('add irn 1, irn 2', 'owner-a');
+
+  assert.equal(batch.parsed.intent, 'addStickers');
+  assert.equal(batch.reply, [
+    'IRN 1 added. You now have 1.',
+    'IRN 2 added. You now have 1.',
+  ].join('\n'));
+  assert.equal(await repository.getQuantity('owner-a', IRN1), 1);
+  assert.equal(await repository.getQuantity('owner-a', IRN2), 1);
 });
 
 test('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {
