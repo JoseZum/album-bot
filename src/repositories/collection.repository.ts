@@ -1126,6 +1126,75 @@ export class CollectionRepository {
     };
   }
 
+  async listFriendDuplicateInventories(
+    ownerId: string,
+  ): Promise<Array<{ ownerId: string; displayName?: string; quantities: Record<string, number> }>> {
+    const result = await this.db.query<{
+      friend_owner_id: string;
+      friend_display_name: string | null;
+      sticker_code: string;
+      subject: string;
+      sticker_number: number;
+      team_code: string | null;
+      team_name: string | null;
+      quantity: number;
+    }>(
+      `SELECT
+         cp_friend.telegram_chat_id AS friend_owner_id,
+         cp_friend.display_name AS friend_display_name,
+         s.code AS sticker_code, s.subject, s.sticker_number,
+         t.code AS team_code, t.name AS team_name,
+         uai.quantity
+       FROM collector_profiles cp_owner
+       JOIN collector_friends cf ON cf.collector_id = cp_owner.id
+       JOIN collector_profiles cp_friend ON cp_friend.id = cf.friend_collector_id
+       JOIN collector_active_albums caa ON caa.collector_id = cp_friend.id
+       JOIN user_albums ua ON ua.id = caa.user_album_id AND ua.deleted_at IS NULL
+       JOIN user_album_members uam
+         ON uam.user_album_id = ua.id
+         AND uam.collector_id = cp_friend.id
+         AND uam.left_at IS NULL
+       JOIN user_album_items uai
+         ON uai.user_album_id = ua.id
+         AND uai.variant_code = 'BASE'
+         AND uai.quantity > 1
+       JOIN stickers s ON s.code = uai.sticker_code
+       LEFT JOIN teams t ON t.id = s.team_id
+       WHERE cp_owner.telegram_chat_id = $1
+       ORDER BY cp_friend.display_name NULLS LAST, cp_friend.telegram_chat_id, s.sticker_number`,
+      [normalizeOwnerId(ownerId)],
+    );
+
+    const byFriend = new Map<string, { ownerId: string; displayName?: string; quantities: Record<string, number> }>();
+
+    for (const row of result.rows) {
+      let entry = byFriend.get(row.friend_owner_id);
+
+      if (!entry) {
+        entry = {
+          ownerId: row.friend_owner_id,
+          displayName: row.friend_display_name ?? undefined,
+          quantities: {},
+        };
+        byFriend.set(row.friend_owner_id, entry);
+      }
+
+      const countryCode = this.toCatalogCountryCode(
+        row.team_code,
+        row.team_name,
+        row.sticker_code,
+        row.subject,
+      );
+
+      if (countryCode && row.sticker_number) {
+        const key = stickerKey({ countryCode, number: row.sticker_number });
+        entry.quantities[key] = row.quantity;
+      }
+    }
+
+    return [...byFriend.values()];
+  }
+
   async listFriendOwnerIds(ownerId: string): Promise<string[]> {
     const collectorUuid = await this.getCollectorUUID(normalizeOwnerId(ownerId));
 

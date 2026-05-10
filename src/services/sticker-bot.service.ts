@@ -1497,33 +1497,30 @@ export class StickerBotService {
     showNames: boolean,
     language: BotLanguage,
   ): Promise<string> {
-    const overview = await this.repository.listFriendOverview(ownerId);
+    const inventories = await this.repository.listFriendDuplicateInventories(ownerId);
 
-    if (overview.friends.length === 0) {
-      return t(language, 'friendsNone');
+    if (inventories.length === 0) {
+      const friendOwnerIds = await this.repository.listFriendOwnerIds(ownerId);
+      return friendOwnerIds.length === 0
+        ? t(language, 'friendsNone')
+        : t(language, 'friendsDuplicatesNone');
     }
 
     const lines = [`<b>${escapeTelegramHtml(t(language, 'friendsDuplicatesTitle'))}</b>`];
 
-    for (const friend of overview.friends) {
-      if (!await this.repository.hasActiveAlbum(friend.ownerId)) {
+    for (const inventory of inventories) {
+      const duplicates = this.getDuplicateEntries(inventory.quantities, countryCode, sticker);
+
+      if (duplicates.length === 0) {
         continue;
       }
 
-      const duplicates = this.getDuplicateEntries(
-        await this.repository.getStickerQuantities(friend.ownerId),
-        countryCode,
-        sticker,
-      );
+      const displayName = escapeTelegramHtml(inventory.displayName ?? inventory.ownerId);
+      const body = !countryCode && !sticker
+        ? this.formatDuplicateCountrySections(duplicates, showNames)
+        : this.formatDuplicateEntryLines(duplicates, showNames);
 
-      if (duplicates.length > 0) {
-        const displayName = escapeTelegramHtml(friend.displayName ?? friend.ownerId);
-        const body = !countryCode && !sticker
-          ? this.formatDuplicateCountrySections(duplicates, showNames)
-          : this.formatDuplicateEntryLines(duplicates, showNames);
-
-        lines.push(`<b>${displayName}</b>\n${body}`);
-      }
+      lines.push(`<b>${displayName}</b>\n${body}`);
     }
 
     if (lines.length === 1) {
