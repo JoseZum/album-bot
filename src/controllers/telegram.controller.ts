@@ -37,10 +37,20 @@ type TelegramWebhookBody = {
   callback_query?: TelegramCallbackQuery;
 };
 
+const safeSend = async <T>(fn: () => Promise<T>, label: string): Promise<T | null> => {
+  try {
+    return await fn();
+  } catch (error: unknown) {
+    const err = error as { message?: string; details?: unknown };
+    console.error(`[webhook] outbound send failed (${label}):`, err.message, err.details ?? '');
+    return null;
+  }
+};
+
 const postTelegramWebhook = async (
   req: Request,
   res: Response,
-  next: NextFunction,
+  _next: NextFunction,
 ): Promise<void> => {
   try {
     const body = req.body as TelegramWebhookBody;
@@ -55,7 +65,10 @@ const postTelegramWebhook = async (
       }
 
       if (!checkRateLimit(String(chatId))) {
-        await telegramService.sendMessage(chatId, t('es', 'rateLimited'));
+        await safeSend(
+          () => telegramService.sendMessage(chatId, t('es', 'rateLimited')),
+          'rateLimited',
+        );
         res.status(200).json({ ok: true });
         return;
       }
@@ -68,19 +81,28 @@ const postTelegramWebhook = async (
       });
 
       const result = await stickerBotService.handleCallbackData(callbackQuery.data, String(chatId));
-      await telegramService.answerCallbackQuery(callbackQuery.id);
-      const sendResult = await telegramService.sendMessage(chatId, result.reply, {
-        replyMarkup: result.replyMarkup,
-        parseMode: result.parseMode,
-      });
+      await safeSend(
+        () => telegramService.answerCallbackQuery(callbackQuery.id),
+        'answerCallbackQuery',
+      );
+      const sendResult = await safeSend(
+        () => telegramService.sendMessage(chatId, result.reply, {
+          replyMarkup: result.replyMarkup,
+          parseMode: result.parseMode,
+        }),
+        'sendMessage/callback',
+      );
       const outboundResults = [];
 
       for (const outboundMessage of result.outboundMessages ?? []) {
         outboundResults.push(
-          await telegramService.sendMessage(outboundMessage.chatId, outboundMessage.text, {
-            replyMarkup: outboundMessage.replyMarkup,
-            parseMode: outboundMessage.parseMode,
-          }),
+          await safeSend(
+            () => telegramService.sendMessage(outboundMessage.chatId, outboundMessage.text, {
+              replyMarkup: outboundMessage.replyMarkup,
+              parseMode: outboundMessage.parseMode,
+            }),
+            `outbound/${outboundMessage.chatId}`,
+          ),
         );
       }
 
@@ -104,7 +126,10 @@ const postTelegramWebhook = async (
     }
 
     if (!checkRateLimit(String(chatId))) {
-      await telegramService.sendMessage(chatId, t('es', 'rateLimited'));
+      await safeSend(
+        () => telegramService.sendMessage(chatId, t('es', 'rateLimited')),
+        'rateLimited',
+      );
       res.status(200).json({ ok: true });
       return;
     }
@@ -117,18 +142,24 @@ const postTelegramWebhook = async (
     });
 
     const result = await stickerBotService.handleMessage(message.text, String(chatId));
-    const sendResult = await telegramService.sendMessage(chatId, result.reply, {
-      replyMarkup: result.replyMarkup,
-      parseMode: result.parseMode,
-    });
+    const sendResult = await safeSend(
+      () => telegramService.sendMessage(chatId, result.reply, {
+        replyMarkup: result.replyMarkup,
+        parseMode: result.parseMode,
+      }),
+      'sendMessage/message',
+    );
     const outboundResults = [];
 
     for (const outboundMessage of result.outboundMessages ?? []) {
       outboundResults.push(
-        await telegramService.sendMessage(outboundMessage.chatId, outboundMessage.text, {
-          replyMarkup: outboundMessage.replyMarkup,
-          parseMode: outboundMessage.parseMode,
-        }),
+        await safeSend(
+          () => telegramService.sendMessage(outboundMessage.chatId, outboundMessage.text, {
+            replyMarkup: outboundMessage.replyMarkup,
+            parseMode: outboundMessage.parseMode,
+          }),
+          `outbound/${outboundMessage.chatId}`,
+        ),
       );
     }
 
@@ -140,8 +171,10 @@ const postTelegramWebhook = async (
         outbound: outboundResults,
       },
     });
-  } catch (error) {
-    next(error);
+  } catch (error: unknown) {
+    const err = error as { message?: string; stack?: string };
+    console.error('[webhook] unexpected processing error:', err.message, err.stack ?? '');
+    res.status(200).json({ ok: true });
   }
 };
 

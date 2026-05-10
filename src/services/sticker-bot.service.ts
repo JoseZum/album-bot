@@ -1935,11 +1935,12 @@ export class StickerBotService {
       options.targetQuantities,
       options.countryCode,
     );
+    const escapedTargetDisplayName = escapeTelegramHtml(options.targetDisplayName);
     const lines = [
       t(options.language, 'compareTitle', {
-        yourAlbum: options.activeAlbum.name,
-        otherAlbum: options.targetAlbum.name,
-        username: options.targetDisplayName,
+        yourAlbum: escapeTelegramHtml(options.activeAlbum.name),
+        otherAlbum: escapeTelegramHtml(options.targetAlbum.name),
+        username: escapedTargetDisplayName,
       }),
       options.countryCode
         ? t(options.language, 'compareCountryScope', { countryCode: options.countryCode })
@@ -1954,13 +1955,13 @@ export class StickerBotService {
 
     lines.push(
       `${t(options.language, 'compareTheyCanGive', {
-        username: options.targetDisplayName,
+        username: escapedTargetDisplayName,
         stickers: this.formatTradeCandidateList(targetCanGive, options.showNames, options.language),
       })}\n${this.formatTradeCandidateSections(targetCanGive, options.showNames, options.language)}`,
     );
     lines.push(
       `${t(options.language, 'compareYouCanGive', {
-        username: options.targetDisplayName,
+        username: escapedTargetDisplayName,
         stickers: this.formatTradeCandidateList(activeCanGive, options.showNames, options.language),
       })}\n${this.formatTradeCandidateSections(activeCanGive, options.showNames, options.language)}`,
     );
@@ -2613,7 +2614,7 @@ export class StickerBotService {
       album.isShared ? t(language, 'albumSharedMarker') : t(language, 'albumOwnedMarker'),
     ].filter(Boolean) as string[];
     const ownerText = album.isShared && album.ownerDisplayName
-      ? ` · ${album.ownerDisplayName}`
+      ? ` · ${escapeTelegramHtml(album.ownerDisplayName)}`
       : '';
 
     return `${index + 1}. <b>${escapeTelegramHtml(album.name)}</b>\n   ${templateName} · ${markers.join(' · ')}${ownerText}`;
