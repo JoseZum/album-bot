@@ -1277,8 +1277,25 @@ export class StickerBotService {
   ): Promise<string> {
     const replies: string[] = [];
 
-    for (const sticker of stickers) {
-      replies.push(await this.addSticker(ownerId, sticker, showNames, language));
+    const results = await this.repository.bulkAddStickers(ownerId, stickers);
+
+    for (const result of results) {
+      const label = formatSticker(result.sticker, { includeName: showNames });
+
+      if (!result.changed) {
+        replies.push(t(language, 'stickerUnavailable', { label }));
+        continue;
+      }
+
+      const duplicateText = result.currentQuantity > 1
+        ? t(language, 'duplicateSuffix', { count: result.currentQuantity - 1 })
+        : '';
+
+      replies.push(t(language, 'stickerAdded', {
+        label,
+        quantity: result.currentQuantity,
+        duplicateText,
+      }));
     }
 
     for (const invalidInput of invalidInputs) {

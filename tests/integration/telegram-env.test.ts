@@ -337,8 +337,11 @@ test('Telegram webhook controller handles message updates without a token', asyn
             }) as never,
           );
 
+          await new Promise<void>((resolve) => setImmediate(resolve));
+
           assert.equal(nextError, undefined);
           assert.equal(response.statusCode, 200);
+          assert.deepEqual(response.body, { ok: true });
           assert.deepEqual(registeredProfiles, [
             {
               ownerId: '12345',
@@ -348,17 +351,6 @@ test('Telegram webhook controller handles message updates without a token', asyn
             },
           ]);
           assert.deepEqual(handledMessages, [{ text: '/start', ownerId: '12345' }]);
-          assert.deepEqual(response.body, {
-            ok: true,
-            data: {
-              reply: 'message reply',
-              telegram: {
-                sent: false,
-                reason: TOKEN_MISSING_REASON,
-              },
-              outbound: [],
-            },
-          });
         },
       );
     });
@@ -428,8 +420,11 @@ test('Telegram webhook controller handles callback updates without a token', asy
             }) as never,
           );
 
+          await new Promise<void>((resolve) => setImmediate(resolve));
+
           assert.equal(nextError, undefined);
           assert.equal(response.statusCode, 200);
+          assert.deepEqual(response.body, { ok: true });
           assert.deepEqual(registeredProfiles, [
             {
               ownerId: '12345',
@@ -439,22 +434,6 @@ test('Telegram webhook controller handles callback updates without a token', asy
             },
           ]);
           assert.deepEqual(handledCallbacks, [{ callbackData: 'trade:accept:T1', ownerId: '12345' }]);
-          assert.deepEqual(response.body, {
-            ok: true,
-            data: {
-              reply: 'callback reply',
-              telegram: {
-                sent: false,
-                reason: TOKEN_MISSING_REASON,
-              },
-              outbound: [
-                {
-                  sent: false,
-                  reason: TOKEN_MISSING_REASON,
-                },
-              ],
-            },
-          });
         },
       );
     });

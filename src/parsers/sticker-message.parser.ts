@@ -2,6 +2,8 @@ import {
   resolveAlbumPage,
   type AlbumPageEntry,
 } from '../catalog/album-pages.catalog';
+
+const MAX_BULK_ADD_STICKERS = 100;
 import {
   getCountryAliasesForParsing,
   normalizeForParsing,
@@ -804,6 +806,14 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
         const stickerList = parseStickerRefList(remainder);
 
         if (stickerList && stickerList.stickers.length > 0) {
+          if (stickerList.stickers.length > MAX_BULK_ADD_STICKERS) {
+            return {
+              intent: 'unknown',
+              reason: `Podés agregar hasta ${MAX_BULK_ADD_STICKERS} estampas a la vez. Dividí el mensaje en partes más chicas.`,
+              showNames,
+            };
+          }
+
           return { intent: 'addStickers', ...stickerList, showNames };
         }
       }

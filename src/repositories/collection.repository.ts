@@ -799,6 +799,187 @@ export class CollectionRepository {
     };
   }
 
+  // ---- Bulk sticker add ----
+
+  async bulkAddStickers(
+    ownerId: string,
+    stickers: StickerRef[],
+  ): Promise<StickerQuantityChange[]> {
+    const normalizedId = normalizeOwnerId(ownerId);
+    const client = await this.db.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizedId);
+
+      // Resolve collector UUID once (needed for history)
+      const collectorRow = await client.query<{ id: string }>(
+        `SELECT id FROM collector_profiles WHERE telegram_chat_id = $1`,
+        [normalizedId],
+      );
+      const collectorUuid = collectorRow.rows[0]?.id ?? null;
+
+      // Build per-sticker lookup params (country code, number, country name, special key)
+      // and aggregate deltas for duplicates (e.g. ARG7 ARG7 → delta=2)
+      const deltaMap = new Map<string, { sticker: StickerRef; delta: number }>();
+      for (const sticker of stickers) {
+        const key = `${sticker.countryCode.toUpperCase()}:${sticker.number}`;
+        const existing = deltaMap.get(key);
+        if (existing) {
+          existing.delta += 1;
+        } else {
+          deltaMap.set(key, { sticker, delta: 1 });
+        }
+      }
+
+      const uniqueEntries = [...deltaMap.values()];
+
+      // Batch-resolve sticker DB codes via unnest
+      const codes = uniqueEntries.map((e) => e.sticker.countryCode.toUpperCase());
+      const numbers = uniqueEntries.map((e) => e.sticker.number);
+      const names = uniqueEntries.map((e) => getCatalogEntry(e.sticker.countryCode)?.name ?? null);
+      const specials = uniqueEntries.map(
+        (e) => `${e.sticker.countryCode.toUpperCase()}${e.sticker.number}`,
+      );
+
+      const lookupResult = await client.query<{
+        idx: number;
+        code: string;
+      }>(
+        `SELECT idx, s.code
+         FROM unnest($1::text[], $2::int[], $3::text[], $4::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, idx)
+         JOIN stickers s ON s.sticker_number = u.sticker_number
+         LEFT JOIN teams t ON t.id = s.team_id
+         WHERE t.code = u.country_code
+            OR (u.country_name IS NOT NULL AND upper(t.name) = upper(u.country_name))
+            OR upper(s.code) = u.special_key
+            OR regexp_replace(upper(s.subject), '\\s+', '', 'g') = u.special_key`,
+        [codes, numbers, names, specials],
+      );
+
+      // Map idx (1-based) → sticker DB code; keep first match per idx
+      const idxToCode = new Map<number, string>();
+      for (const row of lookupResult.rows) {
+        if (!idxToCode.has(row.idx)) {
+          idxToCode.set(row.idx, row.code);
+        }
+      }
+
+      // Separate known from unknown
+      const known: Array<{ sticker: StickerRef; dbCode: string; delta: number }> = [];
+      const unknown: StickerRef[] = [];
+      uniqueEntries.forEach((entry, i) => {
+        const dbCode = idxToCode.get(i + 1);
+        if (dbCode) {
+          known.push({ sticker: entry.sticker, dbCode, delta: entry.delta });
+        } else {
+          unknown.push(entry.sticker);
+        }
+      });
+
+      // Fetch current quantities for known stickers in one query
+      const knownCodes = known.map((k) => k.dbCode);
+      const currentQtyResult = await client.query<{ sticker_code: string; quantity: number }>(
+        `SELECT sticker_code, quantity
+         FROM user_album_items
+         WHERE user_album_id = $1 AND sticker_code = ANY($2::text[]) AND variant_code = 'BASE'`,
+        [activeAlbumId, knownCodes],
+      );
+      const currentQtyMap = new Map<string, number>();
+      for (const row of currentQtyResult.rows) {
+        currentQtyMap.set(row.sticker_code, row.quantity);
+      }
+
+      // Compute new quantities
+      const toUpsert: Array<{ dbCode: string; newQty: number }> = [];
+      const toDelete: string[] = [];
+      const changes: Array<StickerQuantityChange & { dbCode: string }> = [];
+
+      for (const item of known) {
+        const prev = currentQtyMap.get(item.dbCode) ?? 0;
+        const next = Math.max(prev + item.delta, 0);
+
+        changes.push({
+          sticker: item.sticker,
+          previousQuantity: prev,
+          currentQuantity: next,
+          changed: prev !== next,
+          dbCode: item.dbCode,
+        });
+
+        if (next === 0) {
+          toDelete.push(item.dbCode);
+        } else {
+          toUpsert.push({ dbCode: item.dbCode, newQty: next });
+        }
+      }
+
+      // Batch upsert
+      if (toUpsert.length > 0) {
+        await client.query(
+          `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
+           SELECT $1, u.code, 'BASE', u.qty
+           FROM unnest($2::text[], $3::int[]) AS u(code, qty)
+           ON CONFLICT (user_album_id, sticker_code, variant_code)
+           DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
+          [
+            activeAlbumId,
+            toUpsert.map((r) => r.dbCode),
+            toUpsert.map((r) => r.newQty),
+          ],
+        );
+      }
+
+      // Batch delete (quantity reached 0)
+      if (toDelete.length > 0) {
+        await client.query(
+          `DELETE FROM user_album_items
+           WHERE user_album_id = $1 AND sticker_code = ANY($2::text[]) AND variant_code = 'BASE'`,
+          [activeAlbumId, toDelete],
+        );
+      }
+
+      // Batch history insert — only for rows that actually changed
+      const changedRows = changes.filter((c) => c.changed);
+      if (collectorUuid && changedRows.length > 0) {
+        await client.query(
+          `INSERT INTO user_album_events
+             (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
+           SELECT $1, $2, u.code, 'BASE', 'add', u.prev, u.curr, u.curr - u.prev
+           FROM unnest($3::text[], $4::int[], $5::int[]) AS u(code, prev, curr)`,
+          [
+            activeAlbumId,
+            collectorUuid,
+            changedRows.map((c) => c.dbCode),
+            changedRows.map((c) => c.previousQuantity),
+            changedRows.map((c) => c.currentQuantity),
+          ],
+        );
+      }
+
+      await client.query('COMMIT');
+
+      // Build final result: unknown stickers as no-op changes
+      const unknownChanges: StickerQuantityChange[] = unknown.map((s) => ({
+        sticker: s,
+        previousQuantity: 0,
+        currentQuantity: 0,
+        changed: false,
+      }));
+
+      return [
+        ...changes.map(({ dbCode: _dbCode, ...rest }) => rest),
+        ...unknownChanges,
+      ];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async recordHistory(ownerId: string, entry: StickerHistoryEntry): Promise<void> {
     const normalizedOwnerId = normalizeOwnerId(ownerId);
     const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizedOwnerId);
