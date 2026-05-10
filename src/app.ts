@@ -1,6 +1,7 @@
 import express, { NextFunction, Request, Response } from 'express';
 
 import { register } from './config/metrics';
+import { pool } from './db/pool';
 import routes from './routes';
 
 const app = express();
@@ -11,6 +12,15 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/metrics', async (_req: Request, res: Response) => {
   res.set('Content-Type', register.contentType);
   res.end(await register.metrics());
+});
+
+app.get('/health', async (_req: Request, res: Response) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', db: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'error', db: 'unreachable' });
+  }
 });
 
 app.use('/api', routes);
