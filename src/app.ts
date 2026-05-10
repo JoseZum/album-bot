@@ -1,6 +1,6 @@
 import express, { NextFunction, Request, Response } from 'express';
 
-import { register } from './config/metrics';
+import { register, httpRequestCounter, httpRequestDurationMicroseconds } from './config/metrics';
 import { pool } from './db/pool';
 import routes from './routes';
 
@@ -8,6 +8,15 @@ const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const end = httpRequestDurationMicroseconds.startTimer({ method: req.method, route: req.path });
+  res.on('finish', () => {
+    httpRequestCounter.inc({ method: req.method, route: req.path, status_code: res.statusCode });
+    end({ code: res.statusCode });
+  });
+  next();
+});
 
 app.get('/metrics', async (_req: Request, res: Response) => {
   res.set('Content-Type', register.contentType);
