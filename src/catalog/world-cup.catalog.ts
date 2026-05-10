@@ -1032,6 +1032,9 @@ export const WORLD_CUP_CATALOG: CountryCatalogEntry[] = [
     13: 'Raul Jimenez',
     14: 'Lautaro Martinez',
   }, 14),
+  createCountry('WP', 'We Are Panini', ['wp', 'panini', 'we are panini'], {
+    0: 'We Are Panini',
+  }, 1),
 ];
 
 const countriesByCode = new Map(
@@ -1065,7 +1068,7 @@ export const stickerKey = (sticker: StickerRef): string =>
   `${sticker.countryCode.toUpperCase()}-${sticker.number}`;
 
 export const stickerFromKey = (key: string): StickerRef | null => {
-  const match = /^([A-Z]{3})-(\d{1,3})$/.exec(key);
+  const match = /^([A-Z]{2,3})-(\d{1,3})$/.exec(key);
 
   if (!match) {
     return null;
@@ -1080,7 +1083,15 @@ export const stickerFromKey = (key: string): StickerRef | null => {
 export const isKnownSticker = (sticker: StickerRef): boolean => {
   const country = getCatalogEntry(sticker.countryCode);
 
-  return Boolean(country && sticker.number >= 1 && sticker.number <= country.totalStickers);
+  if (!country) {
+    return false;
+  }
+
+  if (country.code === 'WP') {
+    return sticker.number === 0;
+  }
+
+  return sticker.number >= 1 && sticker.number <= country.totalStickers;
 };
 
 export const getAllStickerRefs = (countryCode: string): StickerRef[] => {
@@ -1088,6 +1099,10 @@ export const getAllStickerRefs = (countryCode: string): StickerRef[] => {
 
   if (!country) {
     return [];
+  }
+
+  if (country.code === 'WP') {
+    return [{ countryCode: country.code, number: 0 }];
   }
 
   return Array.from({ length: country.totalStickers }, (_, index) => ({
@@ -1104,7 +1119,9 @@ export const formatSticker = (
     countryCode: sticker.countryCode.toUpperCase(),
     number: sticker.number,
   };
-  const base = `${normalizedSticker.countryCode} ${normalizedSticker.number}`;
+  const base = normalizedSticker.countryCode === 'WP' && normalizedSticker.number === 0
+    ? '00'
+    : `${normalizedSticker.countryCode} ${normalizedSticker.number}`;
   const name = options.includeName ? getStickerName(normalizedSticker) : undefined;
 
   return name ? `${base} - ${name}` : base;

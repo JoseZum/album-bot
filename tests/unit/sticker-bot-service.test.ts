@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Pool } from 'pg';
@@ -26,6 +26,7 @@ const IRN1: StickerRef = { countryCode: 'IRN', number: 1 };
 const IRN2: StickerRef = { countryCode: 'IRN', number: 2 };
 const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
+const WP0: StickerRef = { countryCode: 'WP', number: 0 };
 
 type Harness = {
   repository: CollectionRepository;
@@ -328,9 +329,10 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
     'Duplicates: 1.',
     'Started countries: 1/48.',
     '',
-    '<b>FWC / CC</b>',
+    '<b>FWC / CC / WP</b>',
     '🏆 <b>FWC</b>: 0/19 (0%)',
     '🥤 <b>CC</b>: 0/14 (0%)',
+    '📔 <b>WP</b>: 0/1 (0%)',
   ].join('\n'));
   const progressMenu = await service.handleCallbackData('menu:cards:progress', 'owner-a');
 
@@ -383,7 +385,18 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
   assert.match(country.reply, /JPN 10/);
 });
 
-test('any-number lists only real countries and progress separates FWC and CC', async () => {
+test('00 sticker can be added and queried as a special exception', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  assert.equal((await service.handleMessage('00', 'owner-a')).reply, 'You do not have 00.');
+  assert.equal((await service.handleMessage('add 00', 'owner-a')).reply, '00 added. You now have 1.');
+  assert.equal(await repository.getQuantity('owner-a', WP0), 1);
+  assert.equal((await service.handleMessage('00', 'owner-a')).reply, 'You have 00. Quantity: 1.');
+});
+
+test('any-number lists only real countries and progress separates FWC, CC, and WP', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -407,6 +420,8 @@ test('any-number lists only real countries and progress separates FWC and CC', a
   assert.match(progress.reply, /You have 1\/960 unique stickers \(0\.1%\)\./);
   assert.match(progress.reply, /Duplicates: 0\./);
   assert.match(progress.reply, /Started countries: 1\/48\./);
+  assert.match(progress.reply, /<b>FWC \/ CC \/ WP<\/b>/);
+  assert.match(progress.reply, /<b>WP<\/b>: 0\/1 \(0%\)/);
   assert.match(progress.reply, /🏆 <b>FWC<\/b>: 1\/19 \(5\.3%\) · Duplicates: 1/);
   assert.match(progress.reply, /🥤 <b>CC<\/b>: 1\/14 \(7\.1%\)/);
 });

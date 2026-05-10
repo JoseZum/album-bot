@@ -245,6 +245,10 @@ function buildStickerLookupCandidates(sticker: StickerRef): string[] {
   const countryCode = sticker.countryCode.toUpperCase();
   const number = String(sticker.number);
 
+  if (countryCode === 'WP' && sticker.number === 0) {
+    return ['00', 'WP0', 'WP00', 'WP000'];
+  }
+
   return [...new Set([
     `${countryCode}${number}`,
     `${countryCode}${number.padStart(2, '0')}`,
@@ -1060,7 +1064,7 @@ export class CollectionRepository {
     const subject = eventRow.subject as string | null;
     const countryCode = this.toCatalogCountryCode(teamCode, teamName, stickerCode, subject);
 
-    if (!countryCode || !stickerNumber) {
+    if (!countryCode || stickerNumber === null || stickerNumber === undefined) {
       await this.db.query(`DELETE FROM user_album_events WHERE id = $1`, [eventId]);
 
       return null;
@@ -1209,7 +1213,7 @@ export class CollectionRepository {
         row.subject,
       );
 
-      if (countryCode && row.sticker_number) {
+      if (countryCode && row.sticker_number !== null && row.sticker_number !== undefined) {
         const key = stickerKey({ countryCode, number: row.sticker_number });
         entry.quantities[key] = row.quantity;
       }
@@ -2405,7 +2409,7 @@ export class CollectionRepository {
         row.subject,
       );
 
-      if (countryCode && row.sticker_number) {
+      if (countryCode && row.sticker_number !== null && row.sticker_number !== undefined) {
         const key = stickerKey({ countryCode, number: row.sticker_number });
 
         quantities[key] = row.quantity;
@@ -2437,6 +2441,10 @@ export class CollectionRepository {
       }
     }
 
+    if (stickerCode === '00') {
+      return 'WP';
+    }
+
     if (stickerCode && /^CC\d+$/i.test(stickerCode)) {
       return 'CC';
     }
@@ -2447,6 +2455,10 @@ export class CollectionRepository {
 
     if (subject && /^FWC\s*\d+$/i.test(subject)) {
       return 'FWC';
+    }
+
+    if (subject && /^WE ARE PANINI$/i.test(subject)) {
+      return 'WP';
     }
 
     return teamCode ?? null;

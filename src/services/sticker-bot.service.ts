@@ -94,7 +94,7 @@ const escapeTelegramHtml = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-const SPECIAL_COUNTRY_CODES = new Set(['FWC', 'CC']);
+const SPECIAL_COUNTRY_CODES = new Set(['FWC', 'CC', 'WP']);
 
 
 const compressRanges = (nums: number[]): string => {
@@ -1527,7 +1527,7 @@ export class StickerBotService {
       return t(language, 'friendsDuplicatesNone');
     }
 
-    return lines.join('\n');
+    return lines.join('\n\n');
   }
 
   private getDuplicateEntries(
@@ -1581,7 +1581,7 @@ export class StickerBotService {
         countriesTotal: regularCountries.length,
       }),
       '',
-      '<b>FWC / CC</b>',
+      '<b>FWC / CC / WP</b>',
     ];
 
     for (const country of WORLD_CUP_CATALOG.filter((entry) => this.isSpecialCountryCode(entry.code))) {
@@ -2152,6 +2152,10 @@ export class StickerBotService {
 
     if (!country) {
       return t(language, 'unknownCountry', { country: sticker.countryCode });
+    }
+
+    if (sticker.countryCode.toUpperCase() === 'WP' && sticker.number === 0) {
+      return null;
     }
 
     if (sticker.number < 1 || sticker.number > country.totalStickers) {

@@ -174,6 +174,13 @@ const parseStickerRef = (input: string): StickerRef | null => {
     return null;
   }
 
+  if (cleaned === '00') {
+    return {
+      countryCode: 'WP',
+      number: 0,
+    };
+  }
+
   for (const alias of getCountryAliasesForParsing()) {
     const aliasPattern = buildAliasPattern(alias.normalizedAlias);
     const match = new RegExp(`^${aliasPattern}\\s*(\\d{1,3})$`).exec(cleaned);

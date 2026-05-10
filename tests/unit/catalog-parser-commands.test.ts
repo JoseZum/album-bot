@@ -34,6 +34,7 @@ const FRA10: StickerRef = { countryCode: 'FRA', number: 10 };
 const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 const USA2: StickerRef = { countryCode: 'USA', number: 2 };
+const WP0: StickerRef = { countryCode: 'WP', number: 0 };
 
 const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
@@ -76,12 +77,14 @@ test('catalog exposes country aliases ordered for parsing and resolves aliases',
 test('catalog converts sticker keys and validates known stickers', () => {
   assert.equal(stickerKey({ countryCode: 'arg', number: 10 }), 'ARG-10');
   assert.deepEqual(stickerFromKey('ARG-10'), ARG10);
+  assert.deepEqual(stickerFromKey('WP-0'), WP0);
   assert.deepEqual(stickerFromKey('USA-002'), USA2);
   assert.equal(stickerFromKey('arg-10'), null);
   assert.equal(stickerFromKey('ARG 10'), null);
   assert.equal(isKnownSticker(ARG10), true);
   assert.equal(isKnownSticker({ countryCode: 'ARG', number: 20 }), true);
   assert.equal(isKnownSticker({ countryCode: 'ARG', number: 21 }), false);
+  assert.equal(isKnownSticker(WP0), true);
   assert.equal(isKnownSticker({ countryCode: 'XXX', number: 1 }), false);
 });
 
@@ -109,6 +112,8 @@ test('catalog formats stickers with optional player names', () => {
   assert.equal(formatSticker(ARG10, { includeName: true }), 'ARG 10 - Rodrigo De Paul');
   assert.equal(formatSticker(BRA10, { includeName: true }), 'BRA 10 - Casemiro');
   assert.equal(formatSticker(COL7, { includeName: true }), 'COL 7 - Johan Mojica');
+  assert.equal(formatSticker(WP0), '00');
+  assert.equal(formatSticker(WP0, { includeName: true }), '00 - We Are Panini');
   assert.equal(getCatalogEntry('fra')?.names[10], 'Eduardo Camavinga');
 });
 
@@ -128,6 +133,11 @@ test('parser detects add and remove sticker intents with names flag', () => {
     sticker: JPN10,
     showNames: false,
   });
+  assert.deepEqual(parseStickerMessage('add 00'), {
+    intent: 'addSticker',
+    sticker: WP0,
+    showNames: false,
+  });
   assert.deepEqual(parseStickerMessage('add jpn3, arg 5, fra 9, BRA3'), {
     intent: 'addStickers',
     stickers: [JPN3, ARG5, FRA9, BRA3],
@@ -143,6 +153,11 @@ test('parser detects add and remove sticker intents with names flag', () => {
 });
 
 test('parser detects sticker and country queries', () => {
+  assert.deepEqual(parseStickerMessage('00'), {
+    intent: 'querySticker',
+    sticker: WP0,
+    showNames: false,
+  });
   assert.deepEqual(parseStickerMessage('brasil #10'), {
     intent: 'querySticker',
     sticker: BRA10,
