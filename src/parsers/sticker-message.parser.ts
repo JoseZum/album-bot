@@ -3,7 +3,8 @@ import {
   type AlbumPageEntry,
 } from '../catalog/album-pages.catalog';
 
-const MAX_BULK_ADD_STICKERS = 100;
+/** Max stickers per single `add`/`rm` batch message (shared cap). */
+export const MAX_BULK_STICKER_OPS = 100;
 import {
   getCountryAliasesForParsing,
   normalizeForParsing,
@@ -22,6 +23,7 @@ export type ParsedBotMessage =
   | { intent: 'addSticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'addStickers'; stickers: StickerRef[]; invalidInputs: string[]; showNames: boolean }
   | { intent: 'removeSticker'; sticker: StickerRef; showNames: boolean }
+  | { intent: 'removeStickers'; stickers: StickerRef[]; invalidInputs: string[]; showNames: boolean }
   | { intent: 'tradeCreate'; give: TradeSelector; want: TradeSelector; showNames: boolean }
   | { intent: 'tradeListMine'; showNames: boolean }
   | { intent: 'tradeCancel'; tradeId: string; showNames: boolean }
@@ -809,25 +811,29 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
     const sticker = parseStickerRef(remainder);
 
     if (!sticker) {
-      if (intent === 'addSticker') {
-        const stickerList = parseStickerRefList(remainder);
+      const stickerList = parseStickerRefList(remainder);
 
-        if (stickerList && stickerList.stickers.length > 0) {
-          if (stickerList.stickers.length > MAX_BULK_ADD_STICKERS) {
-            return {
-              intent: 'unknown',
-              reason: `Podés agregar hasta ${MAX_BULK_ADD_STICKERS} estampas a la vez. Dividí el mensaje en partes más chicas.`,
-              showNames,
-            };
-          }
+      if (stickerList && stickerList.stickers.length > 0) {
+        if (stickerList.stickers.length > MAX_BULK_STICKER_OPS) {
+          return {
+            intent: 'unknown',
+            reason: 'bulkStickerLimit',
+            showNames,
+          };
+        }
 
+        if (intent === 'addSticker') {
           return { intent: 'addStickers', ...stickerList, showNames };
         }
+
+        return { intent: 'removeStickers', ...stickerList, showNames };
       }
 
       return {
         intent: 'unknown',
-        reason: 'Indica una estampa, por ejemplo: add arg4.',
+        reason: intent === 'addSticker'
+          ? 'Indica una estampa, por ejemplo: add arg4.'
+          : 'Indica una estampa, por ejemplo: rm arg4.',
         showNames,
       };
     }

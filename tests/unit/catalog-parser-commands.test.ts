@@ -17,7 +17,7 @@ import {
 } from '../../src/catalog/world-cup.catalog';
 import { AddStickerCommand } from '../../src/commands/add-sticker-command';
 import { RemoveStickerCommand } from '../../src/commands/remove-sticker-command';
-import { parseStickerMessage } from '../../src/parsers/sticker-message.parser';
+import { MAX_BULK_STICKER_OPS, parseStickerMessage } from '../../src/parsers/sticker-message.parser';
 import { CollectionRepository } from '../../src/repositories/collection.repository';
 
 const ALBUM_SLUG = 'panini-fifa-world-cup-2026';
@@ -148,6 +148,30 @@ test('parser detects add and remove sticker intents with names flag', () => {
     intent: 'addStickers',
     stickers: [JPN3, ARG5, FRA9, BRA3],
     invalidInputs: [],
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('rm jpn3, arg 5, fra 9, BRA3'), {
+    intent: 'removeStickers',
+    stickers: [JPN3, ARG5, FRA9, BRA3],
+    invalidInputs: [],
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('remove jpn3 arg 5 fra9 BRA3'), {
+    intent: 'removeStickers',
+    stickers: [JPN3, ARG5, FRA9, BRA3],
+    invalidInputs: [],
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('rm jpn3, not-a-token'), {
+    intent: 'removeStickers',
+    stickers: [JPN3],
+    invalidInputs: ['not-a-token'],
+    showNames: false,
+  });
+  const overLimit = `add ${Array.from({ length: MAX_BULK_STICKER_OPS + 1 }, () => 'arg1').join(' ')}`;
+  assert.deepEqual(parseStickerMessage(overLimit), {
+    intent: 'unknown',
+    reason: 'bulkStickerLimit',
     showNames: false,
   });
 });
@@ -360,6 +384,11 @@ test('parser reports invalid sticker commands and unknown input', () => {
   assert.deepEqual(parseStickerMessage('add not-a-sticker'), {
     intent: 'unknown',
     reason: 'Indica una estampa, por ejemplo: add arg4.',
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('rm not-a-sticker'), {
+    intent: 'unknown',
+    reason: 'Indica una estampa, por ejemplo: rm arg4.',
     showNames: false,
   });
   assert.deepEqual(parseStickerMessage(''), {

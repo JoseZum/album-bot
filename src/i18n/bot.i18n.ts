@@ -46,6 +46,8 @@ type TranslationKey =
   | 'emptyMessage'
   | 'unknownCommand'
   | 'stickerRequired'
+  | 'stickerRequiredRemove'
+  | 'bulkStickerLimit'
   | 'stickerNotOwned'
   | 'stickerOwned'
   | 'unknownCountry'
@@ -195,6 +197,8 @@ const enTranslations: Record<TranslationKey, string> = {
   emptyMessage: 'Empty message.',
   unknownCommand: 'I could not detect a country, number, or command.',
   stickerRequired: 'Send a sticker, for example: add arg4.',
+  stickerRequiredRemove: 'Send a sticker, for example: rm arg4.',
+  bulkStickerLimit: 'You can add or remove up to {max} stickers at once. Split your message into smaller parts.',
   stickerNotOwned: 'You do not have {label}.',
   stickerOwned: 'You have {label}. Quantity: {quantity}.',
   unknownCountry: 'I do not recognize {country}.',
@@ -399,6 +403,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     emptyMessage: 'Mensaje vacío.',
     unknownCommand: 'No pude detectar país, número o comando.',
     stickerRequired: 'Indica una estampa, por ejemplo: add arg4.',
+    stickerRequiredRemove: 'Indica una estampa, por ejemplo: rm arg4.',
+    bulkStickerLimit: 'Podés agregar o quitar hasta {max} estampas a la vez. Dividí el mensaje en partes más chicas.',
     stickerNotOwned: 'No tienes {label}.',
     stickerOwned: 'Sí tienes {label}. Cantidad: {quantity}.',
     unknownCountry: 'No reconozco {country}.',
@@ -599,6 +605,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     emptyMessage: '消息为空。',
     unknownCommand: '我无法识别国家、编号或命令。',
     stickerRequired: '请发送一张贴纸，例如：add arg4。',
+    stickerRequiredRemove: '请发送一张贴纸，例如：rm arg4。',
+    bulkStickerLimit: '一次最多添加或移除 {max} 张贴纸。请把消息分成更小的几段。',
     stickerNotOwned: '你没有 {label}。',
     stickerOwned: '你有 {label}。数量：{quantity}。',
     unknownCountry: '我不认识 {country}。',

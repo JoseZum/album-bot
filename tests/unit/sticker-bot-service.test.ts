@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Pool } from 'pg';
@@ -468,6 +468,51 @@ test('add accepts spaced IRN stickers in one message', async () => {
   ].join('\n'));
   assert.equal(await repository.getQuantity('owner-a', IRN1), 1);
   assert.equal(await repository.getQuantity('owner-a', IRN2), 1);
+});
+
+test('rm removes multiple stickers in one message', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  await service.handleMessage('add jpn3, arg 5, fra 9, BRA3', 'owner-a');
+
+  const batch = await service.handleMessage('rm jpn3, arg 5, fra 9, BRA3', 'owner-a');
+
+  assert.equal(batch.parsed.intent, 'removeStickers');
+  assert.equal(batch.reply, [
+    'JPN 3 removed. You now have 0.',
+    'ARG 5 removed. You now have 0.',
+    'FRA 9 removed. You now have 0.',
+    'BRA 3 removed. You now have 0.',
+  ].join('\n'));
+  assert.equal(await repository.getQuantity('owner-a', JPN3), 0);
+  assert.equal(await repository.getQuantity('owner-a', ARG5), 0);
+  assert.equal(await repository.getQuantity('owner-a', FRA9), 0);
+  assert.equal(await repository.getQuantity('owner-a', BRA3), 0);
+
+  const spaced = await service.handleMessage('rm jpn3 arg 5 fra9 BRA3', 'owner-a');
+
+  assert.equal(spaced.parsed.intent, 'removeStickers');
+  assert.equal(spaced.reply, [
+    'You cannot remove JPN 3 because you do not have it.',
+    'You cannot remove ARG 5 because you do not have it.',
+    'You cannot remove FRA 9 because you do not have it.',
+    'You cannot remove BRA 3 because you do not have it.',
+  ].join('\n'));
+});
+
+test('rm batch aggregates duplicate tokens and cannot remove below zero', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  await service.handleMessage('add arg5', 'owner-a');
+  const triple = await service.handleMessage('rm arg5 arg5 arg5', 'owner-a');
+
+  assert.equal(triple.parsed.intent, 'removeStickers');
+  assert.equal(triple.reply, 'ARG 5 removed. You now have 0.');
+  assert.equal(await repository.getQuantity('owner-a', ARG5), 0);
 });
 
 test('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {

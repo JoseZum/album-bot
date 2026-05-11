@@ -23,7 +23,7 @@ import {
   t,
   type BotLanguage,
 } from '../i18n/bot.i18n';
-import { parseStickerMessage, type ParsedBotMessage } from '../parsers/sticker-message.parser';
+import { MAX_BULK_STICKER_OPS, parseStickerMessage, type ParsedBotMessage } from '../parsers/sticker-message.parser';
 import {
   collectionRepository,
   type CollectionSummary,
@@ -547,6 +547,16 @@ export class StickerBotService {
         };
       case 'removeSticker':
         return { reply: await this.removeSticker(ownerId, parsed.sticker, parsed.showNames, language) };
+      case 'removeStickers':
+        return {
+          reply: await this.removeStickers(
+            ownerId,
+            parsed.stickers,
+            parsed.invalidInputs,
+            parsed.showNames,
+            language,
+          ),
+        };
       case 'tradeCreate':
         return this.createTrade(ownerId, parsed.give, parsed.want);
       case 'tradeListMine':
@@ -1295,6 +1305,38 @@ export class StickerBotService {
         label,
         quantity: result.currentQuantity,
         duplicateText,
+      }));
+    }
+
+    for (const invalidInput of invalidInputs) {
+      replies.push(`${invalidInput}: ${t(language, 'stickerRequired')}`);
+    }
+
+    return replies.join('\n');
+  }
+
+  private async removeStickers(
+    ownerId: string,
+    stickers: StickerRef[],
+    invalidInputs: string[],
+    showNames: boolean,
+    language: BotLanguage,
+  ): Promise<string> {
+    const replies: string[] = [];
+
+    const results = await this.repository.bulkRemoveStickers(ownerId, stickers);
+
+    for (const result of results) {
+      const label = formatSticker(result.sticker, { includeName: showNames });
+
+      if (!result.changed) {
+        replies.push(t(language, 'cannotRemove', { label }));
+        continue;
+      }
+
+      replies.push(t(language, 'stickerRemoved', {
+        label,
+        quantity: result.currentQuantity,
       }));
     }
 
@@ -2658,6 +2700,7 @@ export class StickerBotService {
       'addSticker',
       'addStickers',
       'removeSticker',
+      'removeStickers',
       'tradeCreate',
       'missing',
       'duplicates',
@@ -2676,6 +2719,14 @@ export class StickerBotService {
 
     if (reason === 'Indica una estampa, por ejemplo: add arg4.') {
       return t(language, 'stickerRequired');
+    }
+
+    if (reason === 'Indica una estampa, por ejemplo: rm arg4.') {
+      return t(language, 'stickerRequiredRemove');
+    }
+
+    if (reason === 'bulkStickerLimit') {
+      return t(language, 'bulkStickerLimit', { max: MAX_BULK_STICKER_OPS });
     }
 
     if (/^(Trade|Marketplace)\b/.test(reason)) {
