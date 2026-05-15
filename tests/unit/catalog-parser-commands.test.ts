@@ -118,10 +118,11 @@ test('catalog formats stickers with optional player names', () => {
 });
 
 test('parser detects add and remove sticker intents with names flag', () => {
-  assert.deepEqual(parseStickerMessage('/add ARG-10 names'), {
+  assert.deepEqual(parseStickerMessage('/add -p ARG-10 names'), {
     intent: 'addSticker',
     sticker: ARG10,
     showNames: true,
+    showPages: true,
   });
   assert.deepEqual(parseStickerMessage('rm colombia 7'), {
     intent: 'removeSticker',
@@ -132,23 +133,27 @@ test('parser detects add and remove sticker intents with names flag', () => {
     intent: 'addSticker',
     sticker: JPN10,
     showNames: false,
+    showPages: false,
   });
   assert.deepEqual(parseStickerMessage('add 00'), {
     intent: 'addSticker',
     sticker: WP0,
     showNames: false,
+    showPages: false,
   });
-  assert.deepEqual(parseStickerMessage('add jpn3, arg 5, fra 9, BRA3'), {
+  assert.deepEqual(parseStickerMessage('add -p jpn3, arg 5, fra 9, BRA3'), {
     intent: 'addStickers',
     stickers: [JPN3, ARG5, FRA9, BRA3],
     invalidInputs: [],
     showNames: false,
+    showPages: true,
   });
   assert.deepEqual(parseStickerMessage('add jpn3 arg 5 fra9 BRA3'), {
     intent: 'addStickers',
     stickers: [JPN3, ARG5, FRA9, BRA3],
     invalidInputs: [],
     showNames: false,
+    showPages: false,
   });
   assert.deepEqual(parseStickerMessage('rm jpn3, arg 5, fra 9, BRA3'), {
     intent: 'removeStickers',

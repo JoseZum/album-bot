@@ -22,10 +22,14 @@ const BRA4: StickerRef = { countryCode: 'BRA', number: 4 };
 const CC1: StickerRef = { countryCode: 'CC', number: 1 };
 const FWC9: StickerRef = { countryCode: 'FWC', number: 9 };
 const FRA9: StickerRef = { countryCode: 'FRA', number: 9 };
+const GHA3: StickerRef = { countryCode: 'GHA', number: 3 };
 const IRN1: StickerRef = { countryCode: 'IRN', number: 1 };
 const IRN2: StickerRef = { countryCode: 'IRN', number: 2 };
 const JPN3: StickerRef = { countryCode: 'JPN', number: 3 };
 const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
+const URU3: StickerRef = { countryCode: 'URU', number: 3 };
+const URU4: StickerRef = { countryCode: 'URU', number: 4 };
+const USA9: StickerRef = { countryCode: 'USA', number: 9 };
 const WP0: StickerRef = { countryCode: 'WP', number: 0 };
 
 type Harness = {
@@ -468,6 +472,47 @@ test('add accepts spaced IRN stickers in one message', async () => {
   ].join('\n'));
   assert.equal(await repository.getQuantity('owner-a', IRN1), 1);
   assert.equal(await repository.getQuantity('owner-a', IRN2), 1);
+});
+
+test('add -p appends page hints only for newly placed country stickers and sorts them by page', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  const single = await service.handleMessage('add -p uru3', 'owner-a');
+
+  assert.equal(single.reply, 'URU 3 added. You now have 1.\n\nURU is on page 72.');
+  assert.equal(await repository.getQuantity('owner-a', URU3), 1);
+
+  await service.handleMessage('add arg4', 'owner-a');
+
+  const batch = await service.handleMessage(
+    'add -p uru4, arg4, usa9, gha3, 00, fwc9, cc1',
+    'owner-a',
+  );
+
+  assert.equal(batch.parsed.intent, 'addStickers');
+  assert.equal(batch.reply, [
+    'URU 4 added. You now have 1.',
+    'ARG 4 added. You now have 2 (1 duplicate/s).',
+    'USA 9 added. You now have 1.',
+    'GHA 3 added. You now have 1.',
+    '00 added. You now have 1.',
+    'FWC 9 added. You now have 1.',
+    'CC 1 added. You now have 1.',
+    '',
+    'Page path:',
+    '1. USA is on page 32.',
+    '2. URU is on page 72.',
+    '3. GHA is on page 102.',
+  ].join('\n'));
+  assert.equal(await repository.getQuantity('owner-a', URU4), 1);
+  assert.equal(await repository.getQuantity('owner-a', ARG4), 2);
+  assert.equal(await repository.getQuantity('owner-a', USA9), 1);
+  assert.equal(await repository.getQuantity('owner-a', GHA3), 1);
+  assert.equal(await repository.getQuantity('owner-a', WP0), 1);
+  assert.equal(await repository.getQuantity('owner-a', FWC9), 1);
+  assert.equal(await repository.getQuantity('owner-a', CC1), 1);
 });
 
 test('rm removes multiple stickers in one message', async () => {

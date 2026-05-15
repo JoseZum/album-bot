@@ -20,8 +20,8 @@ import {
 export type ParsedBotMessage =
   | { intent: 'querySticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'queryCountry'; countryCode: string; showNames: boolean }
-  | { intent: 'addSticker'; sticker: StickerRef; showNames: boolean }
-  | { intent: 'addStickers'; stickers: StickerRef[]; invalidInputs: string[]; showNames: boolean }
+  | { intent: 'addSticker'; sticker: StickerRef; showNames: boolean; showPages: boolean }
+  | { intent: 'addStickers'; stickers: StickerRef[]; invalidInputs: string[]; showNames: boolean; showPages: boolean }
   | { intent: 'removeSticker'; sticker: StickerRef; showNames: boolean }
   | { intent: 'removeStickers'; stickers: StickerRef[]; invalidInputs: string[]; showNames: boolean }
   | { intent: 'tradeCreate'; give: TradeSelector; want: TradeSelector; showNames: boolean }
@@ -89,13 +89,22 @@ const ALBUM_LEAVE_ALIASES = new Set(['leave']);
 const escapeRegExp = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const stripNameFlag = (text: string): { text: string; showNames: boolean } => {
+const stripCommandFlags = (
+  text: string,
+): { text: string; showNames: boolean; showPages: boolean } => {
   const nameFlagPattern = /(^|\s)(-name|-names|--name|--names|names?)(?=\s|$)/gi;
+  const pageFlagPattern = /(^|\s)-p(?=\s|$)/gi;
   const showNames = nameFlagPattern.test(text);
+  const showPages = pageFlagPattern.test(text);
 
   return {
-    text: text.replace(nameFlagPattern, ' ').replace(/\s+/g, ' ').trim(),
+    text: text
+      .replace(nameFlagPattern, ' ')
+      .replace(pageFlagPattern, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
     showNames,
+    showPages,
   };
 };
 
@@ -695,7 +704,7 @@ const parseAlbumCommand = (
 
 export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
   const originalText = rawText.trim();
-  const { text, showNames } = stripNameFlag(originalText);
+  const { text, showNames, showPages } = stripCommandFlags(originalText);
   const anyNumberMatch = /^\/?any\s*(\d{1,3})$/i.exec(text);
 
   if (anyNumberMatch) {
@@ -823,7 +832,7 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
         }
 
         if (intent === 'addSticker') {
-          return { intent: 'addStickers', ...stickerList, showNames };
+          return { intent: 'addStickers', ...stickerList, showNames, showPages };
         }
 
         return { intent: 'removeStickers', ...stickerList, showNames };
@@ -836,6 +845,10 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
           : 'Indica una estampa, por ejemplo: rm arg4.',
         showNames,
       };
+    }
+
+    if (intent === 'addSticker') {
+      return { intent, sticker, showNames, showPages };
     }
 
     return { intent, sticker, showNames };

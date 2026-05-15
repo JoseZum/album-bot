@@ -2,7 +2,10 @@ import {
   AVAILABLE_ALBUM_TEMPLATES,
   getAlbumTemplate,
 } from '../catalog/album-templates.catalog';
-import type { AlbumPageEntry } from '../catalog/album-pages.catalog';
+import {
+  resolveAlbumPage,
+  type AlbumPageEntry,
+} from '../catalog/album-pages.catalog';
 import {
   WORLD_CUP_CATALOG,
   formatSticker,
@@ -534,7 +537,15 @@ export class StickerBotService {
       case 'queryCountry':
         return this.queryCountry(ownerId, parsed.countryCode, parsed.showNames, language);
       case 'addSticker':
-        return { reply: await this.addSticker(ownerId, parsed.sticker, parsed.showNames, language) };
+        return {
+          reply: await this.addSticker(
+            ownerId,
+            parsed.sticker,
+            parsed.showNames,
+            parsed.showPages,
+            language,
+          ),
+        };
       case 'addStickers':
         return {
           reply: await this.addStickers(
@@ -542,6 +553,7 @@ export class StickerBotService {
             parsed.stickers,
             parsed.invalidInputs,
             parsed.showNames,
+            parsed.showPages,
             language,
           ),
         };
@@ -1229,6 +1241,7 @@ export class StickerBotService {
     ownerId: string,
     sticker: StickerRef,
     showNames: boolean,
+    showPages: boolean,
     language: BotLanguage,
   ): Promise<string> {
     const validationMessage = this.validateSticker(sticker, language);
@@ -1251,11 +1264,15 @@ export class StickerBotService {
       ? t(language, 'duplicateSuffix', { count: result.currentQuantity - 1 })
       : '';
 
-    return t(language, 'stickerAdded', {
+    const reply = t(language, 'stickerAdded', {
       label,
       quantity: result.currentQuantity,
       duplicateText,
     });
+
+    return showPages
+      ? this.appendAddPageHints(reply, [result], language)
+      : reply;
   }
 
   private showAlbumPage(
@@ -1283,6 +1300,7 @@ export class StickerBotService {
     stickers: StickerRef[],
     invalidInputs: string[],
     showNames: boolean,
+    showPages: boolean,
     language: BotLanguage,
   ): Promise<string> {
     const replies: string[] = [];
@@ -1312,7 +1330,11 @@ export class StickerBotService {
       replies.push(`${invalidInput}: ${t(language, 'stickerRequired')}`);
     }
 
-    return replies.join('\n');
+    const reply = replies.join('\n');
+
+    return showPages
+      ? this.appendAddPageHints(reply, results, language)
+      : reply;
   }
 
   private async removeStickers(
@@ -2209,6 +2231,77 @@ export class StickerBotService {
     }
 
     return null;
+  }
+
+  private appendAddPageHints(
+    reply: string,
+    changes: ReadonlyArray<{
+      sticker: StickerRef;
+      previousQuantity: number;
+      currentQuantity: number;
+      changed: boolean;
+    }>,
+    language: BotLanguage,
+  ): string {
+    const pageHints = this.buildAddPageHints(changes, language);
+
+    return pageHints ? `${reply}\n\n${pageHints}` : reply;
+  }
+
+  private buildAddPageHints(
+    changes: ReadonlyArray<{
+      sticker: StickerRef;
+      previousQuantity: number;
+      currentQuantity: number;
+      changed: boolean;
+    }>,
+    language: BotLanguage,
+  ): string {
+    const countries = new Map<string, AlbumPageEntry>();
+
+    for (const change of changes) {
+      const countryCode = change.sticker.countryCode.toUpperCase();
+
+      if (
+        !change.changed
+        || change.previousQuantity !== 0
+        || change.currentQuantity !== 1
+        || SPECIAL_COUNTRY_CODES.has(countryCode)
+        || countries.has(countryCode)
+      ) {
+        continue;
+      }
+
+      const countryPage = resolveAlbumPage(countryCode);
+
+      if (countryPage) {
+        countries.set(countryCode, countryPage);
+      }
+    }
+
+    const sortedCountries = Array.from(countries.values())
+      .sort((left, right) => left.page - right.page || left.code.localeCompare(right.code));
+
+    if (sortedCountries.length === 0) {
+      return '';
+    }
+
+    if (sortedCountries.length === 1) {
+      return this.formatAddPageLocation(sortedCountries[0], language);
+    }
+
+    return [
+      t(language, 'addPagePathTitle'),
+      ...sortedCountries.map((country, index) =>
+        `${index + 1}. ${this.formatAddPageLocation(country, language)}`),
+    ].join('\n');
+  }
+
+  private formatAddPageLocation(country: AlbumPageEntry, language: BotLanguage): string {
+    return t(language, 'addPageLocation', {
+      countryCode: country.code,
+      page: country.page,
+    });
   }
 
   private async getLanguage(ownerId: string): Promise<BotLanguage | undefined> {

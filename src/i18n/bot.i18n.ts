@@ -54,6 +54,8 @@ type TranslationKey =
   | 'albumPage'
   | 'albumPageRequired'
   | 'albumPageUnknown'
+  | 'addPageLocation'
+  | 'addPagePathTitle'
   | 'countryHeader'
   | 'countryProgress'
   | 'ownedStickers'
@@ -205,6 +207,8 @@ const enTranslations: Record<TranslationKey, string> = {
   albumPage: '{countryName} ({countryCode}) is on page {page}.',
   albumPageRequired: 'Send a country, for example: page arg.',
   albumPageUnknown: 'I do not recognize {country}.',
+  addPageLocation: '{countryCode} is on page {page}.',
+  addPagePathTitle: 'Page path:',
   countryHeader: '{flag} <b>{countryName} ({countryCode})</b>',
   countryProgress: '{owned}/{total} ({percentage})',
   ownedStickers: 'Stickers: {stickers}.',
@@ -411,6 +415,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     albumPage: '{countryName} ({countryCode}) está en la página {page}.',
     albumPageRequired: 'Indica un país, por ejemplo: page arg.',
     albumPageUnknown: 'No reconozco {country}.',
+    addPageLocation: '{countryCode} est\u00e1 en la p\u00e1gina {page}.',
+    addPagePathTitle: 'Camino de p\u00e1ginas:',
     ownedStickers: 'Estampas: {stickers}.',
     noCountryStickers: 'No tienes estampas de {countryCode}.',
     missingStickers: 'Faltantes ({count}): {stickers}.',
