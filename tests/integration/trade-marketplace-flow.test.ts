@@ -41,6 +41,9 @@ const withHarness = async (run: (harness: Harness) => Promise<void>): Promise<vo
   await run(harness);
 };
 
+const serialTest = (name: string, fn: () => Promise<void> | void) =>
+  test(name, { concurrency: false }, fn);
+
 const registerUserWithAlbum = async (
   repository: CollectionRepository,
   ownerId: string,
@@ -72,7 +75,7 @@ const assertQuantities = async (
   assert.equal(await repository.getQuantity('owner-b', ARG4), expected.takerArg4);
 };
 
-test('trade marketplace lifecycle completes only after both participants confirm', async () => withHarness(async ({
+serialTest('trade marketplace lifecycle completes only after both participants confirm', async () => withHarness(async ({
   repository,
   service,
 }) => {
@@ -146,7 +149,7 @@ test('trade marketplace lifecycle completes only after both participants confirm
   assert.equal(await persistedRepository.getQuantity('owner-b', ARG2), 1);
 }));
 
-test('trade expires when resolved inventory disappears before final completion', async () => withHarness(async ({
+serialTest('trade expires when resolved inventory disappears before final completion', async () => withHarness(async ({
   repository,
   service,
 }) => {
@@ -177,7 +180,7 @@ test('trade expires when resolved inventory disappears before final completion',
   });
 }));
 
-test('owner can cancel active and pending own marketplace trades', async () => withHarness(async ({
+serialTest('owner can cancel active and pending own marketplace trades', async () => withHarness(async ({
   repository,
   service,
 }) => {

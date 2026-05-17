@@ -49,6 +49,9 @@ const createHarness = async (): Promise<Harness> => {
   return { repository, service };
 };
 
+const serialTest = (name: string, fn: () => Promise<void> | void) =>
+  test(name, { concurrency: false }, fn);
+
 test.after(async () => {
   await testPool.end();
 });
@@ -125,7 +128,7 @@ const findCallbackData = (markup: unknown, pattern: RegExp): string => {
   return match;
 };
 
-test('language selection gates messages until a language callback is handled', async () => {
+serialTest('language selection gates messages until a language callback is handled', async () => {
   const { repository, service } = await createHarness();
 
   const blockedAdd = await service.handleMessage('add arg4', 'owner-a');
@@ -166,7 +169,7 @@ test('language selection gates messages until a language callback is handled', a
   assert.match(stringifyMarkup(languageMenu.replyMarkup), /lang:es/);
 });
 
-test('start menu, album creation, selection, listing, and album callbacks use the repository state', async () => {
+serialTest('start menu, album creation, selection, listing, and album callbacks use the repository state', async () => {
   const { repository, service } = await createHarness();
 
   assert.match((await service.handleCallbackData('lang:en', 'owner-a')).reply, /World Cup sticker album/);
@@ -221,7 +224,7 @@ test('start menu, album creation, selection, listing, and album callbacks use th
   assert.equal((await service.handleCallbackData('album:select:not-found', 'owner-a')).reply, 'Album action not found.');
 });
 
-test('menu command shows the general navigation with friends and marketplace sections', async () => {
+serialTest('menu command shows the general navigation with friends and marketplace sections', async () => {
   const { service } = await createHarness();
 
   await service.handleCallbackData('lang:en', 'owner-a');
@@ -269,7 +272,7 @@ test('menu command shows the general navigation with friends and marketplace sec
   assert.match(stringifyMarkup(marketplaceMenu.replyMarkup), /menu:marketplace:friends/);
 });
 
-test('add, remove, query, missing, duplicates, progress, and undo replies reflect inventory changes', async () => {
+serialTest('add, remove, query, missing, duplicates, progress, and undo replies reflect inventory changes', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -279,10 +282,14 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
     (await service.handleMessage('rm arg4', 'owner-a')).reply,
     'You cannot remove ARG 4 because you do not have it.',
   );
-  assert.equal(
-    (await service.handleMessage('missing', 'owner-a')).reply,
-    'Send a country to see missing stickers, for example: missing arg.',
-  );
+  const albumMissing = await service.handleMessage('missing', 'owner-a');
+
+  assert.equal(albumMissing.parseMode, 'HTML');
+  assert.match(albumMissing.reply, /^<b>Missing stickers<\/b>/);
+  assert.match(albumMissing.reply, /🇲🇽 <b>MEX<\/b>\nMissing \(20\): 1-20\./);
+  assert.match(albumMissing.reply, /🇺🇸 <b>USA<\/b>\nMissing \(20\): 1-20\./);
+  assert.match(albumMissing.reply, /🏆 <b>FWC<\/b>\nMissing \(19\): 1-19\./);
+  assert.match(albumMissing.reply, /📔 <b>WP<\/b>\nMissing \(1\): 0\./);
   assert.equal(
     (await service.handleMessage('arg21', 'owner-a')).reply,
     'ARG 21 does not exist in the catalog. ARG goes from 1 to 20.',
@@ -370,7 +377,30 @@ test('add, remove, query, missing, duplicates, progress, and undo replies reflec
   assert.equal((await service.handleMessage('undo', 'owner-a')).reply, 'There are no actions to undo.');
 });
 
-test('jpn stickers persist with the JPN user-facing code and invalid add text errors', async () => {
+serialTest('missing without argument returns compact album-wide missing sections and skips completed countries', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  await repository.adjustQuantity('owner-a', ARG2, 1);
+  await repository.adjustQuantity('owner-a', ARG4, 1);
+  await repository.adjustQuantity('owner-a', FWC9, 1);
+  await repository.adjustQuantity('owner-a', WP0, 1);
+
+  const missing = await service.handleMessage('missing', 'owner-a');
+
+  assert.equal(missing.parseMode, 'HTML');
+  assert.match(missing.reply, /^<b>Missing stickers<\/b>/);
+  assert.match(missing.reply, /<b>MEX<\/b>\nMissing \(20\): 1-20\./);
+  assert.match(missing.reply, /<b>ARG<\/b>\nMissing \(18\): 1 3 5-20\./);
+  assert.match(missing.reply, /<b>FWC<\/b>\nMissing \(18\): 1-8 10-19\./);
+  assert.match(missing.reply, /<b>CC<\/b>\nMissing \(14\): 1-14\./);
+  assert.ok(missing.reply.indexOf('<b>MEX</b>') < missing.reply.indexOf('<b>ARG</b>'));
+  assert.ok(missing.reply.indexOf('<b>ARG</b>') < missing.reply.indexOf('<b>FWC</b>'));
+  assert.doesNotMatch(missing.reply, /<b>WP<\/b>/);
+});
+
+serialTest('jpn stickers persist with the JPN user-facing code and invalid add text errors', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -389,7 +419,7 @@ test('jpn stickers persist with the JPN user-facing code and invalid add text er
   assert.match(country.reply, /JPN 10/);
 });
 
-test('00 sticker can be added and queried as a special exception', async () => {
+serialTest('00 sticker can be added and queried as a special exception', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -400,7 +430,7 @@ test('00 sticker can be added and queried as a special exception', async () => {
   assert.equal((await service.handleMessage('00', 'owner-a')).reply, 'You have 00. Quantity: 1.');
 });
 
-test('any-number lists only real countries and progress separates FWC, CC, and WP', async () => {
+serialTest('any-number lists only real countries and progress separates FWC, CC, and WP', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -430,7 +460,7 @@ test('any-number lists only real countries and progress separates FWC, CC, and W
   assert.match(progress.reply, /🥤 <b>CC<\/b>: 1\/14 \(7\.1%\)/);
 });
 
-test('add accepts multiple stickers in one message', async () => {
+serialTest('add accepts multiple stickers in one message', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -458,7 +488,7 @@ test('add accepts multiple stickers in one message', async () => {
   assert.equal(await repository.getQuantity('owner-a', BRA3), 2);
 });
 
-test('add accepts spaced IRN stickers in one message', async () => {
+serialTest('add accepts spaced IRN stickers in one message', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -474,7 +504,7 @@ test('add accepts spaced IRN stickers in one message', async () => {
   assert.equal(await repository.getQuantity('owner-a', IRN2), 1);
 });
 
-test('add -p appends page hints only for newly placed country stickers and sorts them by page', async () => {
+serialTest('add -p appends page hints only for newly placed country stickers and sorts them by page', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -515,7 +545,7 @@ test('add -p appends page hints only for newly placed country stickers and sorts
   assert.equal(await repository.getQuantity('owner-a', CC1), 1);
 });
 
-test('rm removes multiple stickers in one message', async () => {
+serialTest('rm removes multiple stickers in one message', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -547,7 +577,7 @@ test('rm removes multiple stickers in one message', async () => {
   ].join('\n'));
 });
 
-test('rm batch aggregates duplicate tokens and cannot remove below zero', async () => {
+serialTest('rm batch aggregates duplicate tokens and cannot remove below zero', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
@@ -560,7 +590,7 @@ test('rm batch aggregates duplicate tokens and cannot remove below zero', async 
   assert.equal(await repository.getQuantity('owner-a', ARG5), 0);
 });
 
-test('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {
+serialTest('share flow sends outbound invitations and handles accept, decline, and error callbacks', async () => {
   const { repository, service } = await createHarness();
 
   const ownerAlbum = await registerUserWithAlbum(
@@ -635,7 +665,7 @@ test('share flow sends outbound invitations and handles accept, decline, and err
   );
 });
 
-test('album deletion requires confirmation before removing the album', async () => {
+serialTest('album deletion requires confirmation before removing the album', async () => {
   const { repository, service } = await createHarness();
 
   const album = await registerUserWithAlbum(
@@ -664,7 +694,7 @@ test('album deletion requires confirmation before removing the album', async () 
   assert.equal((await repository.listAlbums('owner-a')).length, 0);
 });
 
-test('friend requests unlock friend duplicates and friend-only marketplace, with removal confirmation', async () => {
+serialTest('friend requests unlock friend duplicates and friend-only marketplace, with removal confirmation', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
@@ -748,7 +778,7 @@ test('friend requests unlock friend duplicates and friend-only marketplace, with
   );
 });
 
-test('compare flow offers target album callbacks and renders duplicate-for-missing matches', async () => {
+serialTest('compare flow offers target album callbacks and renders duplicate-for-missing matches', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
@@ -773,11 +803,11 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
     '🇦🇷 <b>ARG</b>:',
     'ARG 10 (1)',
     'You can give @collector_b: ARG 1 (1), BRA 4 (1).',
-    '🇦🇷 <b>ARG</b>:',
-    'ARG 1 (1)',
-    '',
     '🇧🇷 <b>BRA</b>:',
     'BRA 4 (1)',
+    '',
+    '🇦🇷 <b>ARG</b>:',
+    'ARG 1 (1)',
   ].join('\n'));
 
   const chooseScopedWithNames = await service.handleMessage('compare arg @collector_b -names', 'owner-a');
@@ -816,7 +846,34 @@ test('compare flow offers target album callbacks and renders duplicate-for-missi
   );
 });
 
-test('help and unknown messages return guidance without requiring an active album', async () => {
+serialTest('compare reply trims long summary lines while keeping full grouped sections', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');
+  await registerUserWithAlbum(service, repository, 'owner-b', 'collector_b', 'Bob Album');
+
+  for (let number = 1; number <= 20; number += 1) {
+    await repository.adjustQuantity('owner-a', { countryCode: 'ARG', number }, 2);
+  }
+  for (let number = 1; number <= 10; number += 1) {
+    await repository.adjustQuantity('owner-a', { countryCode: 'BRA', number }, 2);
+  }
+
+  await repository.adjustQuantity('owner-b', BRA4, 2);
+
+  const chooseTarget = await service.handleMessage('compare @collector_b', 'owner-a');
+  const allCountriesCallback = findCallbackData(chooseTarget.replyMarkup, /^compare:collector_b:1:all:0$/);
+  const compare = await service.handleCallbackData(allCountriesCallback, 'owner-a');
+
+  assert.match(compare.reply, /@collector_b can give you: none\./);
+  assert.match(compare.reply, /You can give @collector_b:[^\n]*\.\.\./);
+  assert.match(compare.reply, /🇧🇷 <b>BRA<\/b>:\nBRA 1 \(1\)/);
+  assert.match(compare.reply, /BRA 10 \(1\)/);
+  assert.match(compare.reply, /🇦🇷 <b>ARG<\/b>:\nARG 1 \(1\)/);
+  assert.match(compare.reply, /ARG 20 \(1\)/);
+});
+
+serialTest('help and unknown messages return guidance without requiring an active album', async () => {
   const { repository, service } = await createHarness();
 
   await service.handleCallbackData('lang:en', 'owner-a');
@@ -870,7 +927,7 @@ test('help and unknown messages return guidance without requiring an active albu
   );
 });
 
-test('trade marketplace smoke test posts and lists an active offer without exercising the full lifecycle', async () => {
+serialTest('trade marketplace smoke test posts and lists an active offer without exercising the full lifecycle', async () => {
   const { repository, service } = await createHarness();
 
   await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Alice Album');

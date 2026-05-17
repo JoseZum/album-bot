@@ -57,6 +57,9 @@ const withHttpServer = async (run: (server: TestServer) => Promise<void>): Promi
   }
 };
 
+const serialTest = (name: string, fn: () => Promise<void> | void) =>
+  test(name, { concurrency: false }, fn);
+
 const requestJson = async (
   baseUrl: string,
   routePath: string,
@@ -113,7 +116,7 @@ const seedEnglishProfile = async (
   });
 };
 
-test('POST /api/bot/message rejects missing text', async () => withHttpServer(async ({ baseUrl }) => {
+serialTest('POST /api/bot/message rejects missing text', async () => withHttpServer(async ({ baseUrl }) => {
   const { response, body } = await postBotMessage(baseUrl, {
     ownerId: 'missing-text-owner',
   });
@@ -125,7 +128,7 @@ test('POST /api/bot/message rejects missing text', async () => withHttpServer(as
   });
 }));
 
-test('POST /api/bot/message registers user and returns language selection then start flow', async () => withHttpServer(async ({
+serialTest('POST /api/bot/message registers user and returns language selection then start flow', async () => withHttpServer(async ({
   baseUrl,
 }) => {
   const ownerId = 'language-flow-owner';
@@ -172,7 +175,7 @@ test('POST /api/bot/message registers user and returns language selection then s
   assert.match(JSON.stringify(startedData.replyMarkup), /album:create:panini-fifa-world-cup-2026/);
 }));
 
-test('POST /api/bot/message can create and select albums through messages', async () => withHttpServer(async ({
+serialTest('POST /api/bot/message can create and select albums through messages', async () => withHttpServer(async ({
   baseUrl,
 }) => {
   const ownerId = 'album-flow-owner';
@@ -231,7 +234,7 @@ test('POST /api/bot/message can create and select albums through messages', asyn
   assert.equal(activeAlbumResult.rows[0].name, 'Road to 2026');
 }));
 
-test('unknown routes return JSON 404 response', async () => withHttpServer(async ({ baseUrl }) => {
+serialTest('unknown routes return JSON 404 response', async () => withHttpServer(async ({ baseUrl }) => {
   const { response, body } = await requestJson(baseUrl, '/api/not-a-route');
 
   assert.equal(response.status, 404);
@@ -241,7 +244,7 @@ test('unknown routes return JSON 404 response', async () => withHttpServer(async
   });
 }));
 
-test('error middleware returns JSON when request parsing fails before a route handler', async () => withHttpServer(async ({
+serialTest('error middleware returns JSON when request parsing fails before a route handler', async () => withHttpServer(async ({
   baseUrl,
 }) => {
   const { response, body } = await requestJson(baseUrl, '/api/bot/message', {
@@ -257,7 +260,3 @@ test('error middleware returns JSON when request parsing fails before a route ha
   assert.equal(envelope.success, false);
   assert.match(String(envelope.message), /JSON|Unexpected|Expected/i);
 }));
-
-test.after(async () => {
-  await testPool.end();
-});

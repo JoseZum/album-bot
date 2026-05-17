@@ -32,6 +32,9 @@ const createHarness = async () => {
   return { repository };
 };
 
+const serialTest = (name: string, fn: () => Promise<void> | void) =>
+  test(name, { concurrency: false }, fn);
+
 const registerProfile = async (
   repository: CollectionRepository,
   ownerId: string,
@@ -69,7 +72,7 @@ test.after(async () => {
   await testPool.end();
 });
 
-test('profiles normalize usernames, preserve identity, and persist language selection', async () => {
+serialTest('profiles normalize usernames, preserve identity, and persist language selection', async () => {
   const { repository } = await createHarness();
 
   const created = await repository.registerProfile({
@@ -105,7 +108,7 @@ test('profiles normalize usernames, preserve identity, and persist language sele
   assert.equal((await repository.getProfile('language-only'))?.language, 'es');
 });
 
-test('albums can be created, listed, selected, renamed, deleted, and left by shared members', async () => {
+serialTest('albums can be created, listed, selected, renamed, deleted, and left by shared members', async () => {
   const { repository } = await createHarness();
 
   await registerProfile(repository, 'owner-a', 'alice');
@@ -189,7 +192,7 @@ test('albums can be created, listed, selected, renamed, deleted, and left by sha
   );
   assert.equal((await repository.setActiveAlbum('owner-a', alphaAlbum.id))?.id, alphaAlbum.id);
 
-  // Data persists in DB — reopen is just the same DB
+  // Data persists in DB â€” reopen is just the same DB
   assert.equal(await repository.getCollectionSummaryById(betaAlbum.id), null);
   assert.equal(await repository.setActiveAlbum('owner-b', betaAlbum.id), null);
   assert.deepEqual(
@@ -204,7 +207,7 @@ test('albums can be created, listed, selected, renamed, deleted, and left by sha
   );
 });
 
-test('inventory adjustments and undo history restore persisted sticker quantities', async () => {
+serialTest('inventory adjustments and undo history restore persisted sticker quantities', async () => {
   const { repository } = await createHarness();
 
   await createAlbum(repository, 'owner-a', 'History Album');
@@ -257,7 +260,7 @@ test('inventory adjustments and undo history restore persisted sticker quantitie
   });
 });
 
-test('share requests handle creation, acceptance, decline, duplicate, and answered edge cases', async () => {
+serialTest('share requests handle creation, acceptance, decline, duplicate, and answered edge cases', async () => {
   const { repository } = await createHarness();
 
   await registerProfile(repository, 'alice-id', 'alice');
@@ -351,7 +354,7 @@ test('share requests handle creation, acceptance, decline, duplicate, and answer
   );
 });
 
-test('active album requirement errors are returned or thrown before persistence changes', async () => {
+serialTest('active album requirement errors are returned or thrown before persistence changes', async () => {
   const { repository } = await createHarness();
 
   await registerProfile(repository, 'owner-without-album', 'missing_album');
@@ -418,7 +421,7 @@ test('active album requirement errors are returned or thrown before persistence 
   );
 });
 
-test('trade cancellation and expiration statuses persist across repository instances', async () => {
+serialTest('trade cancellation and expiration statuses persist across repository instances', async () => {
   const { repository } = await createHarness();
 
   await registerProfile(repository, 'owner-a', 'owner_a');
@@ -485,4 +488,78 @@ test('trade cancellation and expiration statuses persist across repository insta
   assert.equal((await repository.getTradeOffer('T2'))?.status, 'cancelled');
   assert.deepEqual(await repository.listTradeOffersForOwner('owner-a'), []);
   assert.deepEqual(await repository.listMarketplaceTradeOffers('owner-b'), []);
+});
+
+serialTest('repository exposes SQL-first duplicate and compare helpers for active albums and friends', async () => {
+  const { repository } = await createHarness();
+
+  await registerProfile(repository, 'owner-a', 'alice');
+  await registerProfile(repository, 'owner-b', 'bob');
+  await registerProfile(repository, 'owner-c', 'carol');
+
+  const aliceAlbum = await createAlbum(repository, 'owner-a', 'Alice Album');
+  const bobAlbum = await createAlbum(repository, 'owner-b', 'Bob Album');
+  await createAlbum(repository, 'owner-c', 'Carol Album');
+
+  await repository.adjustQuantity('owner-a', ARG2, 2);
+  await repository.adjustQuantity('owner-a', BRA4, 2);
+  await repository.adjustQuantity('owner-b', ARG3, 1);
+  await repository.adjustQuantity('owner-b', BRA4, 1);
+  await repository.adjustQuantity('owner-b', ARG4, 2);
+  await repository.adjustQuantity('owner-c', ARG2, 2);
+
+  const friendRequest = await repository.createFriendRequest('owner-a', 'bob');
+
+  assert.ok(friendRequest.request);
+  assert.equal(
+    (await repository.acceptFriendRequest(friendRequest.request.id, 'owner-b')).error,
+    undefined,
+  );
+
+  const ownDuplicates = await repository.listDuplicateStickers('owner-a');
+
+  assert.deepEqual(ownDuplicates, [
+    { sticker: ARG2, quantity: 2 },
+    { sticker: BRA4, quantity: 2 },
+  ]);
+
+  assert.deepEqual(
+    await repository.listDuplicateStickersForAlbum(bobAlbum.id, 'ARG'),
+    [{ sticker: ARG4, quantity: 2 }],
+  );
+
+  assert.deepEqual(
+    await repository.listCompareCandidates(aliceAlbum.id, bobAlbum.id),
+    [{ sticker: ARG2, extraCount: 1 }],
+  );
+  assert.deepEqual(
+    await repository.listCompareCandidates(bobAlbum.id, aliceAlbum.id),
+    [{ sticker: ARG4, extraCount: 1 }],
+  );
+
+  assert.deepEqual(
+    await repository.listFriendDuplicateStickers('owner-a', 'ARG'),
+    [{
+      ownerId: 'owner-b',
+      displayName: '@bob',
+      duplicates: [{ sticker: ARG4, quantity: 2 }],
+    }],
+  );
+
+  const comparison = await repository.compareAlbums('owner-a', 'owner-b', bobAlbum.id, {
+    sourceCollectionId: aliceAlbum.id,
+  });
+
+  assert.deepEqual(comparison, {
+    sourceAlbum: {
+      ...aliceAlbum,
+      isActive: true,
+    },
+    targetAlbum: {
+      ...bobAlbum,
+      isActive: false,
+    },
+    sourceCanGive: [{ sticker: ARG2, extraCount: 1 }],
+    targetCanGive: [{ sticker: ARG4, extraCount: 1 }],
+  });
 });

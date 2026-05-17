@@ -80,6 +80,24 @@ type TradeCandidate = {
   extraCount: number;
 };
 
+type DuplicateEntry = {
+  key: string;
+  sticker: StickerRef;
+  quantity: number;
+};
+
+type InventoryEntry = {
+  key: string;
+  sticker: StickerRef;
+  quantity: number;
+};
+
+type InventoryIndex = {
+  knownEntries: InventoryEntry[];
+  duplicateEntries: DuplicateEntry[];
+  ownedKeys: Set<string>;
+};
+
 type InlineKeyboardButton = {
   text: string;
   callback_data: string;
@@ -1421,7 +1439,7 @@ export class StickerBotService {
     language: BotLanguage,
   ): Promise<string> {
     if (!countryCode) {
-      return t(language, 'missingNeedsCountry');
+      return this.showAllMissing(ownerId, showNames, language);
     }
 
     const stats = await this.getCountryStats(ownerId, countryCode);
@@ -1456,6 +1474,28 @@ export class StickerBotService {
     ].join('\n');
   }
 
+  private async showAllMissing(
+    ownerId: string,
+    showNames: boolean,
+    language: BotLanguage,
+  ): Promise<string> {
+    const quantities = await this.repository.getStickerQuantities(ownerId);
+    const sections = WORLD_CUP_CATALOG
+      .map((country) => this.buildCountryStats(country.code, quantities))
+      .filter((stats): stats is CountryStats => Boolean(stats && stats.missing.length > 0))
+      .sort((left, right) => this.compareCountryAlbumOrder(left.countryCode, right.countryCode))
+      .map((stats) => this.formatMissingCountrySection(stats, showNames, language, { compactNumbers: true }));
+
+    if (sections.length === 0) {
+      return t(language, 'missingNone');
+    }
+
+    return [
+      `<b>${escapeTelegramHtml(t(language, 'missingAllTitle'))}</b>`,
+      ...sections,
+    ].join('\n\n');
+  }
+
   private async showDuplicates(
     ownerId: string,
     countryCode: string | undefined,
@@ -1463,7 +1503,12 @@ export class StickerBotService {
     showNames: boolean,
     language: BotLanguage,
   ): Promise<string> {
-    const duplicates = this.getDuplicateEntries(await this.repository.getStickerQuantities(ownerId), countryCode, sticker);
+    const [duplicates, countryStats] = await Promise.all([
+      this.repository.listDuplicateStickers(ownerId, countryCode, sticker),
+      countryCode && !sticker
+        ? this.getCountryStats(ownerId, countryCode)
+        : Promise.resolve(null),
+    ]);
 
     if (duplicates.length === 0) {
       if (sticker) {
@@ -1475,26 +1520,23 @@ export class StickerBotService {
         : t(language, 'duplicatesNone');
     }
 
-    if (countryCode && !sticker) {
-      const stats = await this.getCountryStats(ownerId, countryCode);
-      if (stats) {
-        const header = t(language, 'countryHeader', {
-          flag: getCountryFlag(stats.countryCode),
-          countryCode: stats.countryCode,
-          countryName: stats.countryName,
-        });
-        const progress = t(language, 'countryProgress', {
-          owned: stats.owned.length,
-          total: stats.total,
-          percentage: stats.percentage,
-        });
-        return [
-          header,
-          progress,
-          this.formatDuplicatesTitle(language),
-          this.formatDuplicateEntryLines(duplicates, showNames),
-        ].join('\n');
-      }
+    if (countryCode && !sticker && countryStats) {
+      const header = t(language, 'countryHeader', {
+        flag: getCountryFlag(countryStats.countryCode),
+        countryCode: countryStats.countryCode,
+        countryName: countryStats.countryName,
+      });
+      const progress = t(language, 'countryProgress', {
+        owned: countryStats.owned.length,
+        total: countryStats.total,
+        percentage: countryStats.percentage,
+      });
+      return [
+        header,
+        progress,
+        this.formatDuplicatesTitle(language),
+        this.formatDuplicateEntryLines(duplicates, showNames),
+      ].join('\n');
     }
 
     const body = !countryCode && !sticker
@@ -1529,15 +1571,13 @@ export class StickerBotService {
       return t(language, 'friendNotFriends', { username: targetProfile.displayName ?? `@${targetUsername}` });
     }
 
-    if (!await this.repository.hasActiveAlbum(targetProfile.ownerId)) {
+    const targetActiveAlbum = await this.repository.getActiveAlbum(targetProfile.ownerId);
+
+    if (!targetActiveAlbum) {
       return t(language, 'compareNoTargetAlbums', { username: targetProfile.displayName ?? `@${targetUsername}` });
     }
 
-    const duplicates = this.getDuplicateEntries(
-      await this.repository.getStickerQuantities(targetProfile.ownerId),
-      countryCode,
-      sticker,
-    );
+    const duplicates = await this.repository.listDuplicateStickersForAlbum(targetActiveAlbum.id, countryCode, sticker);
     const displayName = targetProfile.displayName ?? `@${targetUsername}`;
 
     if (duplicates.length === 0) {
@@ -1561,9 +1601,9 @@ export class StickerBotService {
     showNames: boolean,
     language: BotLanguage,
   ): Promise<string> {
-    const inventories = await this.repository.listFriendDuplicateInventories(ownerId);
+    const duplicateGroups = await this.repository.listFriendDuplicateStickers(ownerId, countryCode, sticker);
 
-    if (inventories.length === 0) {
+    if (duplicateGroups.length === 0) {
       const friendOwnerIds = await this.repository.listFriendOwnerIds(ownerId);
       return friendOwnerIds.length === 0
         ? t(language, 'friendsNone')
@@ -1572,17 +1612,11 @@ export class StickerBotService {
 
     const lines = [`<b>${escapeTelegramHtml(t(language, 'friendsDuplicatesTitle'))}</b>`];
 
-    for (const inventory of inventories) {
-      const duplicates = this.getDuplicateEntries(inventory.quantities, countryCode, sticker);
-
-      if (duplicates.length === 0) {
-        continue;
-      }
-
+    for (const inventory of duplicateGroups) {
       const displayName = escapeTelegramHtml(inventory.displayName ?? inventory.ownerId);
       const body = !countryCode && !sticker
-        ? this.formatDuplicateCountrySections(duplicates, showNames)
-        : this.formatDuplicateEntryLines(duplicates, showNames);
+        ? this.formatDuplicateCountrySections(inventory.duplicates, showNames)
+        : this.formatDuplicateEntryLines(inventory.duplicates, showNames);
 
       lines.push(`<b>${displayName}</b>\n${body}`);
     }
@@ -1594,37 +1628,43 @@ export class StickerBotService {
     return lines.join('\n\n');
   }
 
-  private getDuplicateEntries(
-    quantities: Record<string, number>,
-    countryCode: string | undefined,
-    sticker: StickerRef | undefined,
-  ): { sticker: StickerRef; quantity: number }[] {
-    const stickerFilterKey = sticker ? stickerKey(sticker) : undefined;
+  private buildInventoryIndex(quantities: Record<string, number>): InventoryIndex {
+    const knownEntries: InventoryEntry[] = [];
+    const duplicateEntries: DuplicateEntry[] = [];
+    const ownedKeys = new Set<string>();
 
-    return Object.entries(quantities)
-      .map(([key, quantity]) => ({
-        sticker: stickerFromKey(key),
-        quantity,
-        key,
-      }))
-      .filter((entry): entry is { sticker: StickerRef; quantity: number; key: string } =>
-        Boolean(entry.sticker && entry.quantity > 1),
-      )
-      .filter((entry) => !countryCode || entry.sticker.countryCode === countryCode)
-      .filter((entry) => !stickerFilterKey || entry.key === stickerFilterKey)
-      .sort((left, right) => sortStickers([left.sticker, right.sticker])[0] === left.sticker ? -1 : 1);
+    for (const [key, quantity] of Object.entries(quantities)) {
+      if (quantity <= 0) {
+        continue;
+      }
+
+      const sticker = stickerFromKey(key);
+
+      if (!sticker || !isKnownSticker(sticker)) {
+        continue;
+      }
+
+      knownEntries.push({ key, sticker, quantity });
+      ownedKeys.add(key);
+
+      if (quantity > 1) {
+        duplicateEntries.push({ key, sticker, quantity });
+      }
+    }
+
+    knownEntries.sort((left, right) => this.compareStickerRefs(left.sticker, right.sticker));
+    duplicateEntries.sort((left, right) => this.compareStickerRefs(left.sticker, right.sticker));
+
+    return {
+      knownEntries,
+      duplicateEntries,
+      ownedKeys,
+    };
   }
 
   private async showProgress(ownerId: string, language: BotLanguage): Promise<string> {
     const quantities = await this.repository.getStickerQuantities(ownerId);
-    const knownEntries = Object.entries(quantities)
-      .map(([key, quantity]) => ({
-        sticker: stickerFromKey(key),
-        quantity,
-      }))
-      .filter((entry): entry is { sticker: StickerRef; quantity: number } =>
-        Boolean(entry.sticker && isKnownSticker(entry.sticker) && entry.quantity > 0),
-      );
+    const { knownEntries } = this.buildInventoryIndex(quantities);
     const regularCountries = WORLD_CUP_CATALOG.filter((country) => !this.isSpecialCountryCode(country.code));
     const regularCountryCodes = new Set(regularCountries.map((country) => country.code));
     const regularEntries = knownEntries.filter((entry) => regularCountryCodes.has(entry.sticker.countryCode));
@@ -1961,30 +2001,42 @@ export class StickerBotService {
       };
     }
 
-    const targetAlbum = (await this.repository.listAlbums(targetProfile.ownerId))[albumIndex - 1];
-
-    if (!targetAlbum) {
-      return { reply: t(language, 'compareAlbumNotFound') };
-    }
-
-    const targetSnapshot = await this.repository.getAlbumSnapshot(targetProfile.ownerId, targetAlbum.id);
-    const activeAlbum = await this.repository.getActiveAlbum(ownerId);
+    const [activeAlbum, targetAlbums] = await Promise.all([
+      this.repository.getActiveAlbum(ownerId),
+      this.repository.listAlbums(targetProfile.ownerId),
+    ]);
 
     if (!activeAlbum) {
       return { reply: t(language, 'commandRequiresActiveAlbum') };
     }
 
-    if (!targetSnapshot) {
+    const targetAlbum = targetAlbums[albumIndex - 1];
+
+    if (!targetAlbum) {
+      return { reply: t(language, 'compareAlbumNotFound') };
+    }
+
+    const comparison = await this.repository.compareAlbums(
+      ownerId,
+      targetProfile.ownerId,
+      targetAlbum.id,
+      {
+        sourceCollectionId: activeAlbum.id,
+        countryCode,
+      },
+    );
+
+    if (!comparison) {
       return { reply: t(language, 'compareAlbumNotFound') };
     }
 
     return {
       reply: this.buildCompareReply({
-        activeAlbum,
-        activeQuantities: await this.repository.getStickerQuantities(ownerId),
-        targetAlbum: targetSnapshot.album,
+        activeAlbum: comparison.sourceAlbum,
+        activeCanGive: comparison.sourceCanGive,
+        targetAlbum: comparison.targetAlbum,
         targetDisplayName: targetProfile.displayName ?? `@${targetUsername}`,
-        targetQuantities: targetSnapshot.stickerQuantities,
+        targetCanGive: comparison.targetCanGive,
         countryCode,
         showNames,
         language,
@@ -1995,24 +2047,14 @@ export class StickerBotService {
 
   private buildCompareReply(options: {
     activeAlbum: CollectionSummary;
-    activeQuantities: Record<string, number>;
+    activeCanGive: TradeCandidate[];
     targetAlbum: CollectionSummary;
     targetDisplayName: string;
-    targetQuantities: Record<string, number>;
+    targetCanGive: TradeCandidate[];
     countryCode?: string;
     showNames: boolean;
     language: BotLanguage;
   }): string {
-    const targetCanGive = this.findDuplicateMissingMatches(
-      options.targetQuantities,
-      options.activeQuantities,
-      options.countryCode,
-    );
-    const activeCanGive = this.findDuplicateMissingMatches(
-      options.activeQuantities,
-      options.targetQuantities,
-      options.countryCode,
-    );
     const escapedTargetDisplayName = escapeTelegramHtml(options.targetDisplayName);
     const lines = [
       t(options.language, 'compareTitle', {
@@ -2025,7 +2067,7 @@ export class StickerBotService {
         : t(options.language, 'compareAllCountriesScope'),
     ];
 
-    if (targetCanGive.length === 0 && activeCanGive.length === 0) {
+    if (options.targetCanGive.length === 0 && options.activeCanGive.length === 0) {
       lines.push(t(options.language, 'compareNoMatches'));
 
       return lines.join('\n');
@@ -2034,47 +2076,17 @@ export class StickerBotService {
     lines.push(
       `${t(options.language, 'compareTheyCanGive', {
         username: escapedTargetDisplayName,
-        stickers: this.formatTradeCandidateList(targetCanGive, options.showNames, options.language),
-      })}\n${this.formatTradeCandidateSections(targetCanGive, options.showNames, options.language)}`,
+        stickers: this.formatTradeCandidatePreview(options.targetCanGive, options.showNames, options.language),
+      })}\n${this.formatTradeCandidateSections(options.targetCanGive, options.showNames, options.language)}`,
     );
     lines.push(
       `${t(options.language, 'compareYouCanGive', {
         username: escapedTargetDisplayName,
-        stickers: this.formatTradeCandidateList(activeCanGive, options.showNames, options.language),
-      })}\n${this.formatTradeCandidateSections(activeCanGive, options.showNames, options.language)}`,
+        stickers: this.formatTradeCandidatePreview(options.activeCanGive, options.showNames, options.language),
+      })}\n${this.formatTradeCandidateSections(options.activeCanGive, options.showNames, options.language)}`,
     );
 
     return lines.join('\n');
-  }
-
-  private findDuplicateMissingMatches(
-    sourceQuantities: Record<string, number>,
-    targetQuantities: Record<string, number>,
-    countryCode: string | undefined,
-  ): TradeCandidate[] {
-    return Object.entries(sourceQuantities)
-      .map(([key, quantity]) => ({
-        sticker: stickerFromKey(key),
-        quantity,
-        key,
-      }))
-      .filter((entry): entry is { sticker: StickerRef; quantity: number; key: string } =>
-        Boolean(entry.sticker && isKnownSticker(entry.sticker)),
-      )
-      .filter((entry) =>
-        entry.quantity > 1
-        && (targetQuantities[entry.key] ?? 0) <= 0
-        && (!countryCode || entry.sticker.countryCode === countryCode),
-      )
-      .map((entry) => ({
-        sticker: entry.sticker,
-        extraCount: entry.quantity - 1,
-      }))
-      .sort((left, right) => {
-        const countryComparison = left.sticker.countryCode.localeCompare(right.sticker.countryCode);
-
-        return countryComparison || left.sticker.number - right.sticker.number;
-      });
   }
 
   private formatTradeCandidateList(
@@ -2091,6 +2103,41 @@ export class StickerBotService {
         `${formatSticker(candidate.sticker, { includeName: showNames })} ${this.formatExtraCount(candidate.extraCount)}`,
       )
       .join(', ');
+  }
+
+  private formatTradeCandidatePreview(
+    candidates: TradeCandidate[],
+    showNames: boolean,
+    language: BotLanguage,
+  ): string {
+    const fullList = this.formatTradeCandidateList(candidates, showNames, language);
+
+    if (fullList.length <= 240) {
+      return fullList;
+    }
+
+    const previewItems: string[] = [];
+
+    for (const candidate of candidates) {
+      const item = `${formatSticker(candidate.sticker, { includeName: showNames })} ${this.formatExtraCount(candidate.extraCount)}`;
+      const nextPreview = previewItems.length === 0
+        ? item
+        : `${previewItems.join(', ')}, ${item}`;
+
+      if (nextPreview.length > 180) {
+        break;
+      }
+
+      previewItems.push(item);
+    }
+
+    if (previewItems.length === 0) {
+      return '...';
+    }
+
+    return previewItems.length === candidates.length
+      ? previewItems.join(', ')
+      : `${previewItems.join(', ')}, ...`;
   }
 
   private formatTradeCandidateSections(
@@ -2111,6 +2158,7 @@ export class StickerBotService {
     }
 
     return Array.from(sections.entries())
+      .sort(([leftCountryCode], [rightCountryCode]) => this.compareCountryAlbumOrder(leftCountryCode, rightCountryCode))
       .map(([countryCode, entries]) => [
         `${getCountryFlag(countryCode)} <b>${countryCode}</b>:`,
         entries
@@ -2123,6 +2171,16 @@ export class StickerBotService {
   }
 
   private async getCountryStats(ownerId: string, countryCode: string): Promise<CountryStats | null> {
+    return this.buildCountryStats(
+      countryCode,
+      await this.repository.getStickerQuantities(ownerId),
+    );
+  }
+
+  private buildCountryStats(
+    countryCode: string,
+    quantities: Record<string, number>,
+  ): CountryStats | null {
     const country = getCatalogEntry(countryCode);
 
     if (!country) {
@@ -2130,7 +2188,6 @@ export class StickerBotService {
     }
 
     const allStickers = getAllStickerRefs(country.code);
-    const quantities = await this.repository.getStickerQuantities(ownerId);
     const owned = allStickers.filter((sticker) => (quantities[stickerKey(sticker)] ?? 0) > 0);
     const missing = allStickers.filter((sticker) => (quantities[stickerKey(sticker)] ?? 0) <= 0);
 
@@ -2172,6 +2229,57 @@ export class StickerBotService {
 
   private isSpecialCountryCode(countryCode: string): boolean {
     return SPECIAL_COUNTRY_CODES.has(countryCode.toUpperCase());
+  }
+
+  private formatMissingCountrySection(
+    stats: CountryStats,
+    showNames: boolean,
+    language: BotLanguage,
+    options: { compactNumbers?: boolean } = {},
+  ): string {
+    const stickers = options.compactNumbers
+      ? this.formatStickerNumberRanges(stats.missing)
+      : this.formatStickerList(stats.missing, showNames, language);
+
+    return [
+      `${getCountryFlag(stats.countryCode)} <b>${stats.countryCode}</b>`,
+      t(language, 'missingStickers', {
+        count: stats.missing.length,
+        stickers,
+      }),
+    ].join('\n');
+  }
+
+  private formatStickerNumberRanges(stickers: StickerRef[]): string {
+    return compressRanges(
+      sortStickers(stickers).map((sticker) => sticker.number),
+    );
+  }
+
+  private compareStickerRefs(left: StickerRef, right: StickerRef): number {
+    return this.compareCountryAlbumOrder(left.countryCode, right.countryCode)
+      || left.number - right.number;
+  }
+
+  private compareCountryAlbumOrder(leftCountryCode: string, rightCountryCode: string): number {
+    const leftPage = resolveAlbumPage(leftCountryCode)?.page;
+    const rightPage = resolveAlbumPage(rightCountryCode)?.page;
+
+    if (leftPage !== undefined && rightPage !== undefined) {
+      return leftPage - rightPage || leftCountryCode.localeCompare(rightCountryCode);
+    }
+
+    if (leftPage !== undefined) {
+      return -1;
+    }
+
+    if (rightPage !== undefined) {
+      return 1;
+    }
+
+    const specialOrder = ['FWC', 'CC', 'WP'];
+
+    return specialOrder.indexOf(leftCountryCode) - specialOrder.indexOf(rightCountryCode);
   }
 
   private formatDuplicatesTitle(language: BotLanguage): string {

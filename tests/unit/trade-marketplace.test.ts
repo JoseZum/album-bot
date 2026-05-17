@@ -26,6 +26,9 @@ const createHarness = async () => {
   return { repository };
 };
 
+const serialTest = (name: string, fn: () => Promise<void> | void) =>
+  test(name, { concurrency: false }, fn);
+
 const registerUser = async (
   repository: CollectionRepository,
   ownerId: string,
@@ -47,7 +50,7 @@ test.after(async () => {
   await testPool.end();
 });
 
-test('parser accepts marketplace direction filters and rejects bare sticker filters', () => {
+serialTest('parser accepts marketplace direction filters and rejects bare sticker filters', () => {
   const giveParsed = parseStickerMessage('marketplace -give arg4');
   const needParsed = parseStickerMessage('marketplace -need arg4');
   const bareStickerParsed = parseStickerMessage('marketplace arg4');
@@ -72,7 +75,7 @@ test('parser accepts marketplace direction filters and rejects bare sticker filt
   }
 });
 
-test('parser accepts unscoped and country-scoped wildcard trade operands', () => {
+serialTest('parser accepts unscoped and country-scoped wildcard trade operands', () => {
   const unscopedParsed = parseStickerMessage('trade -duplicate -missing');
   const scopedParsed = parseStickerMessage('trade -duplicate argentina -missing brazil');
 
@@ -96,7 +99,7 @@ test('parser accepts unscoped and country-scoped wildcard trade operands', () =>
   }
 });
 
-test('repository marketplace direction filters keep wildcard give and need sides separate', async () => {
+serialTest('repository marketplace direction filters keep wildcard give and need sides separate', async () => {
   const { repository } = await createHarness();
 
   await registerUser(repository, 'owner-a', 'tester_a');
@@ -129,7 +132,7 @@ test('repository marketplace direction filters keep wildcard give and need sides
   );
 });
 
-test('repository resolves wildcard duplicate and missing selectors against current inventories', async () => {
+serialTest('repository resolves wildcard duplicate and missing selectors against current inventories', async () => {
   const { repository } = await createHarness();
 
   await registerUser(repository, 'owner-a', 'tester_a');

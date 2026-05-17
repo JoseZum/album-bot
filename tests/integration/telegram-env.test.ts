@@ -202,6 +202,51 @@ test('TelegramService sends expected fetch payloads and returns Telegram JSON', 
   ]);
 });
 
+test('TelegramService splits oversized messages into multiple Telegram calls', async () => {
+  const service = new TelegramService();
+  const calls: Array<{ body: Record<string, unknown> }> = [];
+  let messageId = 0;
+  const fetchStub: typeof globalThis.fetch = async (_input, init) => {
+    calls.push({
+      body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+    });
+
+    messageId += 1;
+
+    return createJsonResponse({ ok: true, result: { message_id: messageId } });
+  };
+
+  await withEnv({ TELEGRAM_BOT_TOKEN: 'test-token' }, async () => {
+    await withFetch(fetchStub, async () => {
+      const longText = Array.from({ length: 600 }, (_, index) => `ARG ${index + 1} (1)`).join(', ');
+      const replyMarkup = {
+        inline_keyboard: [[{ text: 'Open', callback_data: 'open:1' }]],
+      };
+
+      assert.deepEqual(await service.sendMessage(12345, longText, { replyMarkup, parseMode: 'HTML' }), {
+        sent: true,
+        telegramResponse: { ok: true, result: { message_id: calls.length } },
+        telegramResponses: calls.map((_, index) => ({ ok: true, result: { message_id: index + 1 } })),
+      });
+    });
+  });
+
+  assert.ok(calls.length > 1);
+  for (const [index, call] of calls.entries()) {
+    assert.equal(typeof call.body.text, 'string');
+    assert.ok(String(call.body.text).length <= 4000);
+    assert.equal(call.body.parse_mode, 'HTML');
+
+    if (index === calls.length - 1) {
+      assert.deepEqual(call.body.reply_markup, {
+        inline_keyboard: [[{ text: 'Open', callback_data: 'open:1' }]],
+      });
+    } else {
+      assert.equal(call.body.reply_markup, undefined);
+    }
+  }
+});
+
 test('TelegramService throws 502 errors with Telegram details when fetch is not OK', async () => {
   const service = new TelegramService();
   const errorPayload = {

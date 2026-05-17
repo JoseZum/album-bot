@@ -102,6 +102,34 @@ export type CollectionSnapshot = {
   stickerQuantities: Record<string, number>;
 };
 
+export type DuplicateStickerEntry = {
+  sticker: StickerRef;
+  quantity: number;
+};
+
+export type FriendDuplicateStickerGroup = {
+  ownerId: string;
+  displayName?: string;
+  duplicates: DuplicateStickerEntry[];
+};
+
+export type CompareCandidate = {
+  sticker: StickerRef;
+  extraCount: number;
+};
+
+export type AlbumComparison = {
+  sourceAlbum: CollectionSummary;
+  sourceCanGive: CompareCandidate[];
+  targetAlbum: CollectionSummary;
+  targetCanGive: CompareCandidate[];
+};
+
+type AccessibleAlbumDetails = {
+  summary: CollectionSummary;
+  catalogAlbumId: number;
+};
+
 // ---------------------------------------------------------------------------
 // Row → TypeScript helpers
 // ---------------------------------------------------------------------------
@@ -436,35 +464,65 @@ export class CollectionRepository {
   async getAlbumSnapshot(ownerId: string, collectionId: string): Promise<CollectionSnapshot | null> {
     const normalizedOwnerId = normalizeOwnerId(ownerId);
     const activeAlbumId = await this.getActiveAlbumId(normalizedOwnerId);
-
-    // Check user is a member of this album
-    const albumResult = await this.db.query<Record<string, unknown>>(
-      `SELECT
-         ua.id,
-         al.slug AS album_slug,
-         ua.name,
-         owner_cp.telegram_chat_id AS owner_telegram_chat_id,
-         owner_cp.display_name AS owner_display_name,
-         COUNT(uam2.collector_id) AS member_count
-       FROM user_albums ua
-       JOIN albums al ON al.id = ua.album_id
-       JOIN collector_profiles owner_cp ON owner_cp.id = ua.owner_id
-       JOIN user_album_members uam ON uam.user_album_id = ua.id AND uam.left_at IS NULL
-       JOIN collector_profiles cp ON cp.id = uam.collector_id AND cp.telegram_chat_id = $1
-       JOIN user_album_members uam2 ON uam2.user_album_id = ua.id AND uam2.left_at IS NULL
-       WHERE ua.id = $2 AND ua.deleted_at IS NULL
-       GROUP BY ua.id, al.slug, ua.name, owner_cp.telegram_chat_id, owner_cp.display_name`,
-      [normalizedOwnerId, collectionId],
+    const albumDetails = await this.getAccessibleAlbumDetails(
+      normalizedOwnerId,
+      collectionId,
+      activeAlbumId,
     );
 
-    if (!albumResult.rows[0]) {
+    if (!albumDetails) {
       return null;
     }
 
-    const album = rowToCollectionSummary(albumResult.rows[0], normalizedOwnerId, activeAlbumId);
     const stickerQuantities = await this.getStickerQuantitiesForAlbum(collectionId);
 
-    return { album, stickerQuantities };
+    return { album: albumDetails.summary, stickerQuantities };
+  }
+
+  async compareAlbums(
+    sourceOwnerId: string,
+    targetOwnerId: string,
+    targetCollectionId: string,
+    options?: {
+      sourceCollectionId?: string;
+      countryCode?: string;
+    },
+  ): Promise<AlbumComparison | null> {
+    const normalizedSourceOwnerId = normalizeOwnerId(sourceOwnerId);
+    const normalizedTargetOwnerId = normalizeOwnerId(targetOwnerId);
+    const sourceActiveAlbumId = await this.getActiveAlbumId(normalizedSourceOwnerId);
+    const sourceCollectionId = options?.sourceCollectionId
+      ?? sourceActiveAlbumId
+      ?? await this.getActiveAlbumIdOrThrow(normalizedSourceOwnerId);
+    const normalizedCountryCode = options?.countryCode?.toUpperCase();
+    const [sourceAlbumDetails, targetAlbumDetails] = await Promise.all([
+      this.getAccessibleAlbumDetails(
+        normalizedSourceOwnerId,
+        sourceCollectionId,
+        sourceActiveAlbumId ?? sourceCollectionId,
+      ),
+      this.getAccessibleAlbumDetails(normalizedTargetOwnerId, targetCollectionId, null),
+    ]);
+
+    if (!sourceAlbumDetails || !targetAlbumDetails) {
+      return null;
+    }
+
+    if (sourceAlbumDetails.catalogAlbumId !== targetAlbumDetails.catalogAlbumId) {
+      return null;
+    }
+
+    const [sourceCanGive, targetCanGive] = await Promise.all([
+      this.listCompareCandidates(sourceCollectionId, targetCollectionId, normalizedCountryCode),
+      this.listCompareCandidates(targetCollectionId, sourceCollectionId, normalizedCountryCode),
+    ]);
+
+    return {
+      sourceAlbum: sourceAlbumDetails.summary,
+      targetAlbum: targetAlbumDetails.summary,
+      sourceCanGive,
+      targetCanGive,
+    };
   }
 
   async createAlbum(ownerId: string, albumSlug: string, name?: string): Promise<CollectionSummary | null> {
@@ -763,6 +821,58 @@ export class CollectionRepository {
     const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizeOwnerId(ownerId));
 
     return this.getStickerQuantitiesForAlbum(activeAlbumId);
+  }
+
+  async listDuplicateStickers(
+    ownerId: string,
+    countryCode?: string,
+    sticker?: StickerRef,
+  ): Promise<DuplicateStickerEntry[]> {
+    const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizeOwnerId(ownerId));
+
+    return this.listDuplicateStickersForAlbum(activeAlbumId, countryCode, sticker);
+  }
+
+  async listDuplicateStickersForAlbum(
+    albumId: string,
+    countryCode?: string,
+    sticker?: StickerRef,
+  ): Promise<DuplicateStickerEntry[]> {
+    const result = await this.db.query<{
+      sticker_code: string;
+      subject: string;
+      team_code: string | null;
+      team_name: string | null;
+      sticker_number: number;
+      quantity: number;
+      album_order: number;
+    }>(
+      `SELECT
+         s.code AS sticker_code,
+         s.subject,
+         t.code AS team_code,
+         t.name AS team_name,
+         s.sticker_number,
+         uai.quantity,
+         s.album_order
+       FROM user_album_items uai
+       JOIN stickers s ON s.code = uai.sticker_code
+       LEFT JOIN teams t ON t.id = s.team_id
+       WHERE uai.user_album_id = $1
+         AND uai.variant_code = 'BASE'
+         AND uai.quantity > 1
+       ORDER BY s.album_order ASC`,
+      [albumId],
+    );
+
+    return result.rows
+      .map((row) => ({
+        sticker: this.rowToStickerRef(row),
+        quantity: row.quantity,
+      }))
+      .filter((entry): entry is DuplicateStickerEntry => Boolean(entry.sticker))
+      .filter((entry) => this.matchesStickerFilters(entry.sticker, countryCode, sticker))
+      .sort((left, right) => this.compareStickerRefs(left.sticker, right.sticker));
   }
 
   async adjustQuantity(ownerId: string, sticker: StickerRef, delta: number): Promise<StickerQuantityChange> {
@@ -1387,20 +1497,141 @@ export class CollectionRepository {
         byFriend.set(row.friend_owner_id, entry);
       }
 
-      const countryCode = this.toCatalogCountryCode(
-        row.team_code,
-        row.team_name,
-        row.sticker_code,
-        row.subject,
-      );
+      const sticker = this.rowToStickerRef(row);
 
-      if (countryCode && row.sticker_number !== null && row.sticker_number !== undefined) {
-        const key = stickerKey({ countryCode, number: row.sticker_number });
-        entry.quantities[key] = row.quantity;
+      if (sticker) {
+        entry.quantities[stickerKey(sticker)] = row.quantity;
       }
     }
 
     return [...byFriend.values()];
+  }
+
+  async listFriendDuplicateStickers(
+    ownerId: string,
+    countryCode?: string,
+    sticker?: StickerRef,
+  ): Promise<FriendDuplicateStickerGroup[]> {
+    const result = await this.db.query<{
+      friend_owner_id: string;
+      friend_display_name: string | null;
+      sticker_code: string;
+      subject: string;
+      sticker_number: number;
+      team_code: string | null;
+      team_name: string | null;
+      quantity: number;
+      album_order: number;
+    }>(
+      `SELECT
+         cp_friend.telegram_chat_id AS friend_owner_id,
+         cp_friend.display_name AS friend_display_name,
+         s.code AS sticker_code,
+         s.subject,
+         s.sticker_number,
+         t.code AS team_code,
+         t.name AS team_name,
+         uai.quantity,
+         s.album_order
+       FROM collector_profiles cp_owner
+       JOIN collector_friends cf ON cf.collector_id = cp_owner.id
+       JOIN collector_profiles cp_friend ON cp_friend.id = cf.friend_collector_id
+       JOIN collector_active_albums caa ON caa.collector_id = cp_friend.id
+       JOIN user_albums ua ON ua.id = caa.user_album_id AND ua.deleted_at IS NULL
+       JOIN user_album_members uam
+         ON uam.user_album_id = ua.id
+         AND uam.collector_id = cp_friend.id
+         AND uam.left_at IS NULL
+       JOIN user_album_items uai
+         ON uai.user_album_id = ua.id
+         AND uai.variant_code = 'BASE'
+         AND uai.quantity > 1
+       JOIN stickers s ON s.code = uai.sticker_code
+       LEFT JOIN teams t ON t.id = s.team_id
+       WHERE cp_owner.telegram_chat_id = $1
+       ORDER BY cp_friend.display_name NULLS LAST, cp_friend.telegram_chat_id, s.album_order`,
+      [normalizeOwnerId(ownerId)],
+    );
+
+    const byFriend = new Map<string, FriendDuplicateStickerGroup>();
+
+    for (const row of result.rows) {
+      const mappedSticker = this.rowToStickerRef(row);
+
+      if (!mappedSticker || !this.matchesStickerFilters(mappedSticker, countryCode, sticker)) {
+        continue;
+      }
+
+      let entry = byFriend.get(row.friend_owner_id);
+
+      if (!entry) {
+        entry = {
+          ownerId: row.friend_owner_id,
+          displayName: row.friend_display_name ?? undefined,
+          duplicates: [],
+        };
+        byFriend.set(row.friend_owner_id, entry);
+      }
+
+      entry.duplicates.push({
+        sticker: mappedSticker,
+        quantity: row.quantity,
+      });
+    }
+
+    for (const group of byFriend.values()) {
+      group.duplicates.sort((left, right) => this.compareStickerRefs(left.sticker, right.sticker));
+    }
+
+    return [...byFriend.values()];
+  }
+
+  async listCompareCandidates(
+    sourceAlbumId: string,
+    targetAlbumId: string,
+    countryCode?: string,
+  ): Promise<CompareCandidate[]> {
+    const result = await this.db.query<{
+      sticker_code: string;
+      subject: string;
+      team_code: string | null;
+      team_name: string | null;
+      sticker_number: number;
+      quantity: number;
+      album_order: number;
+    }>(
+      `SELECT
+         s.code AS sticker_code,
+         s.subject,
+         t.code AS team_code,
+         t.name AS team_name,
+         s.sticker_number,
+         source_items.quantity,
+         s.album_order
+       FROM user_album_items source_items
+       JOIN stickers s ON s.code = source_items.sticker_code
+       LEFT JOIN teams t ON t.id = s.team_id
+       LEFT JOIN user_album_items target_items
+         ON target_items.user_album_id = $2
+         AND target_items.sticker_code = source_items.sticker_code
+         AND target_items.variant_code = 'BASE'
+         AND target_items.quantity > 0
+       WHERE source_items.user_album_id = $1
+         AND source_items.variant_code = 'BASE'
+         AND source_items.quantity > 1
+         AND target_items.sticker_code IS NULL
+       ORDER BY s.album_order ASC`,
+      [sourceAlbumId, targetAlbumId],
+    );
+
+    return result.rows
+      .map((row) => ({
+        sticker: this.rowToStickerRef(row),
+        extraCount: row.quantity - 1,
+      }))
+      .filter((entry): entry is CompareCandidate => Boolean(entry.sticker))
+      .filter((entry) => !countryCode || entry.sticker.countryCode === countryCode)
+      .sort((left, right) => this.compareStickerRefs(left.sticker, right.sticker));
   }
 
   async listFriendOwnerIds(ownerId: string): Promise<string[]> {
@@ -2563,6 +2794,52 @@ export class CollectionRepository {
     return updated ? { row: updated } : { error: 'Solicitud de amistad no encontrada.' };
   }
 
+  private async getAccessibleAlbumDetails(
+    ownerId: string,
+    collectionId: string,
+    activeAlbumId?: string | null,
+  ): Promise<AccessibleAlbumDetails | null> {
+    const normalizedOwnerId = normalizeOwnerId(ownerId);
+    const resolvedActiveAlbumId = activeAlbumId === undefined
+      ? await this.getActiveAlbumId(normalizedOwnerId)
+      : activeAlbumId;
+    const result = await this.db.query<Record<string, unknown>>(
+      `SELECT
+         ua.id,
+         ua.album_id AS catalog_album_id,
+         al.slug AS album_slug,
+         ua.name,
+         owner_cp.telegram_chat_id AS owner_telegram_chat_id,
+         owner_cp.display_name AS owner_display_name,
+         COUNT(active_members.collector_id) AS member_count
+       FROM user_albums ua
+       JOIN albums al ON al.id = ua.album_id
+       JOIN collector_profiles owner_cp ON owner_cp.id = ua.owner_id
+       JOIN user_album_members requester_member
+         ON requester_member.user_album_id = ua.id
+         AND requester_member.left_at IS NULL
+       JOIN collector_profiles requester_cp
+         ON requester_cp.id = requester_member.collector_id
+         AND requester_cp.telegram_chat_id = $1
+       JOIN user_album_members active_members
+         ON active_members.user_album_id = ua.id
+         AND active_members.left_at IS NULL
+       WHERE ua.id = $2
+         AND ua.deleted_at IS NULL
+       GROUP BY ua.id, ua.album_id, al.slug, ua.name, owner_cp.telegram_chat_id, owner_cp.display_name`,
+      [normalizedOwnerId, collectionId],
+    );
+
+    if (!result.rows[0]) {
+      return null;
+    }
+
+    return {
+      summary: rowToCollectionSummary(result.rows[0], normalizedOwnerId, resolvedActiveAlbumId),
+      catalogAlbumId: Number(result.rows[0].catalog_album_id),
+    };
+  }
+
   private async getStickerQuantitiesForAlbum(albumId: string): Promise<Record<string, number>> {
     const result = await this.db.query<{
       sticker_code: string;
@@ -2583,21 +2860,59 @@ export class CollectionRepository {
     const quantities: Record<string, number> = {};
 
     for (const row of result.rows) {
-      const countryCode = this.toCatalogCountryCode(
-        row.team_code,
-        row.team_name,
-        row.sticker_code,
-        row.subject,
-      );
+      const sticker = this.rowToStickerRef(row);
 
-      if (countryCode && row.sticker_number !== null && row.sticker_number !== undefined) {
-        const key = stickerKey({ countryCode, number: row.sticker_number });
-
-        quantities[key] = row.quantity;
+      if (sticker) {
+        quantities[stickerKey(sticker)] = row.quantity;
       }
     }
 
     return quantities;
+  }
+
+  private rowToStickerRef(row: {
+    team_code: string | null | undefined;
+    team_name: string | null | undefined;
+    sticker_code?: string | null;
+    subject?: string | null;
+    sticker_number: number | null | undefined;
+  }): StickerRef | null {
+    const countryCode = this.toCatalogCountryCode(
+      row.team_code,
+      row.team_name,
+      row.sticker_code,
+      row.subject,
+    );
+
+    if (!countryCode || row.sticker_number === null || row.sticker_number === undefined) {
+      return null;
+    }
+
+    return {
+      countryCode,
+      number: row.sticker_number,
+    };
+  }
+
+  private matchesStickerFilters(
+    sticker: StickerRef,
+    countryCode?: string,
+    selectedSticker?: StickerRef,
+  ): boolean {
+    if (countryCode && sticker.countryCode !== countryCode) {
+      return false;
+    }
+
+    if (selectedSticker && stickerKey(sticker) !== stickerKey(selectedSticker)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private compareStickerRefs(left: StickerRef, right: StickerRef): number {
+    return left.countryCode.localeCompare(right.countryCode)
+      || left.number - right.number;
   }
 
   private toCatalogCountryCode(

@@ -26,4 +26,20 @@ CREATE TABLE IF NOT EXISTS trade_offers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_trade_offers_status_created
+  ON trade_offers(status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_trade_offers_owner_status_created
+  ON trade_offers(owner_id, status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_trade_offers_collection_status
+  ON trade_offers(collection_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_trade_offers_active_created
+  ON trade_offers(created_at DESC)
+  WHERE status = 'active';
+
+CREATE INDEX IF NOT EXISTS idx_trade_offers_reserved_collection_status
+  ON trade_offers(reserved_collection_id, status);
+
 COMMIT;

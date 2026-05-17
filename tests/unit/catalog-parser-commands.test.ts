@@ -50,17 +50,20 @@ const createRepositoryHarness = async () => {
   return { repository };
 };
 
+const serialTest = (name: string, fn: () => Promise<void> | void) =>
+  test(name, { concurrency: false }, fn);
+
 test.after(async () => {
   await testPool.end();
 });
 
-test('catalog normalizes parser input consistently', () => {
+serialTest('catalog normalizes parser input consistently', () => {
   assert.equal(normalizeForParsing('  México.Costa_Rica  '), 'mexico costa rica');
   assert.equal(normalizeForParsing('Ángel   Di_María'), 'angel di maria');
   assert.equal(normalizeForParsing('Países.Bajos'), 'paises bajos');
 });
 
-test('catalog exposes country aliases ordered for parsing and resolves aliases', () => {
+serialTest('catalog exposes country aliases ordered for parsing and resolves aliases', () => {
   const aliases = getCountryAliasesForParsing();
   const colombiaAlias = aliases.find((entry) => entry.normalizedAlias === 'colombia');
   const colAlias = aliases.find((entry) => entry.normalizedAlias === 'col');
@@ -74,7 +77,7 @@ test('catalog exposes country aliases ordered for parsing and resolves aliases',
   assert.equal(resolveCountry('not a country'), undefined);
 });
 
-test('catalog converts sticker keys and validates known stickers', () => {
+serialTest('catalog converts sticker keys and validates known stickers', () => {
   assert.equal(stickerKey({ countryCode: 'arg', number: 10 }), 'ARG-10');
   assert.deepEqual(stickerFromKey('ARG-10'), ARG10);
   assert.deepEqual(stickerFromKey('WP-0'), WP0);
@@ -88,7 +91,7 @@ test('catalog converts sticker keys and validates known stickers', () => {
   assert.equal(isKnownSticker({ countryCode: 'XXX', number: 1 }), false);
 });
 
-test('catalog sorts stickers without mutating input', () => {
+serialTest('catalog sorts stickers without mutating input', () => {
   const input = [
     { countryCode: 'BRA', number: 3 },
     { countryCode: 'ARG', number: 10 },
@@ -107,7 +110,7 @@ test('catalog sorts stickers without mutating input', () => {
   ]);
 });
 
-test('catalog formats stickers with optional player names', () => {
+serialTest('catalog formats stickers with optional player names', () => {
   assert.equal(formatSticker({ countryCode: 'arg', number: 10 }), 'ARG 10');
   assert.equal(formatSticker(ARG10, { includeName: true }), 'ARG 10 - Rodrigo De Paul');
   assert.equal(formatSticker(BRA10, { includeName: true }), 'BRA 10 - Casemiro');
@@ -117,7 +120,7 @@ test('catalog formats stickers with optional player names', () => {
   assert.equal(getCatalogEntry('fra')?.names[10], 'Eduardo Camavinga');
 });
 
-test('parser detects add and remove sticker intents with names flag', () => {
+serialTest('parser detects add and remove sticker intents with names flag', () => {
   assert.deepEqual(parseStickerMessage('/add -p ARG-10 names'), {
     intent: 'addSticker',
     sticker: ARG10,
@@ -181,7 +184,7 @@ test('parser detects add and remove sticker intents with names flag', () => {
   });
 });
 
-test('parser detects sticker and country queries', () => {
+serialTest('parser detects sticker and country queries', () => {
   assert.deepEqual(parseStickerMessage('00'), {
     intent: 'querySticker',
     sticker: WP0,
@@ -199,7 +202,7 @@ test('parser detects sticker and country queries', () => {
   });
 });
 
-test('parser detects missing and duplicate queries with optional country scope', () => {
+serialTest('parser detects missing and duplicate queries with optional country scope', () => {
   assert.deepEqual(parseStickerMessage('/missing'), {
     intent: 'missing',
     countryCode: undefined,
@@ -222,7 +225,7 @@ test('parser detects missing and duplicate queries with optional country scope',
   });
 });
 
-test('parser detects progress, any-number, start, language, undo, and help commands', () => {
+serialTest('parser detects progress, any-number, start, language, undo, and help commands', () => {
   assert.deepEqual(parseStickerMessage('/progress'), {
     intent: 'progress',
     showNames: false,
@@ -263,7 +266,7 @@ test('parser detects progress, any-number, start, language, undo, and help comma
   });
 });
 
-test('parser detects album page lookups by code and country alias', () => {
+serialTest('parser detects album page lookups by code and country alias', () => {
   const argPage = parseStickerMessage('page arg');
 
   assert.equal(argPage.intent, 'page');
@@ -283,7 +286,7 @@ test('parser detects album page lookups by code and country alias', () => {
   assert.equal(missingPage.countryInput, 'atlantis');
 });
 
-test('parser detects share and compare commands', () => {
+serialTest('parser detects share and compare commands', () => {
   assert.deepEqual(parseStickerMessage('/share @Collector_123'), {
     intent: 'share',
     targetUsername: 'collector_123',
@@ -308,7 +311,7 @@ test('parser detects share and compare commands', () => {
   });
 });
 
-test('parser detects friend commands and friend duplicate scopes', () => {
+serialTest('parser detects friend commands and friend duplicate scopes', () => {
   assert.deepEqual(parseStickerMessage('dupes @Friend_123 arg5'), {
     intent: 'duplicates',
     targetUsername: 'friend_123',
@@ -353,7 +356,7 @@ test('parser detects friend commands and friend duplicate scopes', () => {
   });
 });
 
-test('parser detects album management commands', () => {
+serialTest('parser detects album management commands', () => {
   assert.deepEqual(parseStickerMessage('albums names'), {
     intent: 'albumList',
     showNames: true,
@@ -385,7 +388,7 @@ test('parser detects album management commands', () => {
   });
 });
 
-test('parser reports invalid sticker commands and unknown input', () => {
+serialTest('parser reports invalid sticker commands and unknown input', () => {
   assert.deepEqual(parseStickerMessage('add not-a-sticker'), {
     intent: 'unknown',
     reason: 'Indica una estampa, por ejemplo: add arg4.',
@@ -408,7 +411,7 @@ test('parser reports invalid sticker commands and unknown input', () => {
   });
 });
 
-test('AddStickerCommand increments quantity and undo reverses it', async () => {
+serialTest('AddStickerCommand increments quantity and undo reverses it', async () => {
   const { repository } = await createRepositoryHarness();
 
   const command = new AddStickerCommand(repository, OWNER_ID, BRA3);
@@ -439,7 +442,7 @@ test('AddStickerCommand increments quantity and undo reverses it', async () => {
   assert.equal(await repository.getQuantity(OWNER_ID, BRA3), 1);
 });
 
-test('RemoveStickerCommand decrements quantity, clamps at zero, and undo restores', async () => {
+serialTest('RemoveStickerCommand decrements quantity, clamps at zero, and undo restores', async () => {
   const { repository } = await createRepositoryHarness();
 
   await repository.adjustQuantity(OWNER_ID, FRA10, 1);
