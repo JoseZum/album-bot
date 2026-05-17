@@ -61,6 +61,8 @@ type TranslationKey =
   | 'ownedStickers'
   | 'noCountryStickers'
   | 'missingStickers'
+  | 'missingAllTitle'
+  | 'missingNone'
   | 'stickerAdded'
   | 'stickerUnavailable'
   | 'duplicateSuffix'
@@ -214,6 +216,8 @@ const enTranslations: Record<TranslationKey, string> = {
   ownedStickers: 'Stickers: {stickers}.',
   noCountryStickers: 'You do not have stickers from {countryCode}.',
   missingStickers: 'Missing ({count}): {stickers}.',
+  missingAllTitle: 'Missing stickers',
+  missingNone: 'You are not missing any sticker right now.',
   stickerAdded: '{label} added. You now have {quantity}{duplicateText}.',
   stickerUnavailable: 'I could not find {label} in this album.',
   duplicateSuffix: ' ({count} duplicate/s)',
@@ -420,6 +424,8 @@ const translations: Record<BotLanguage, Record<TranslationKey, string>> = {
     ownedStickers: 'Estampas: {stickers}.',
     noCountryStickers: 'No tienes estampas de {countryCode}.',
     missingStickers: 'Faltantes ({count}): {stickers}.',
+    missingAllTitle: 'Estampas faltantes',
+    missingNone: 'No te falta ninguna estampa en este momento.',
     stickerAdded: '{label} agregada. Ahora tienes {quantity}{duplicateText}.',
     stickerUnavailable: 'No encontré {label} en este álbum.',
     duplicateSuffix: ' ({count} duplicada/s)',
