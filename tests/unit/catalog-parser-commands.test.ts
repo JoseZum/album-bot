@@ -216,11 +216,37 @@ serialTest('parser detects missing and duplicate queries with optional country s
   assert.deepEqual(parseStickerMessage('dups Argentina'), {
     intent: 'duplicates',
     countryCode: 'ARG',
+    rawFormat: false,
     showNames: false,
   });
   assert.deepEqual(parseStickerMessage('duplicates made up country'), {
     intent: 'duplicates',
     countryCode: undefined,
+    rawFormat: false,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('duplicates -r'), {
+    intent: 'duplicates',
+    countryCode: undefined,
+    rawFormat: true,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('dups -r arg'), {
+    intent: 'duplicates',
+    countryCode: 'ARG',
+    rawFormat: true,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('duplicates arg -r'), {
+    intent: 'duplicates',
+    countryCode: 'ARG',
+    rawFormat: true,
+    showNames: false,
+  });
+  assert.deepEqual(parseStickerMessage('duplicates -r arg5'), {
+    intent: 'duplicates',
+    sticker: ARG5,
+    rawFormat: true,
     showNames: false,
   });
 });
@@ -316,6 +342,7 @@ serialTest('parser detects friend commands and friend duplicate scopes', () => {
     intent: 'duplicates',
     targetUsername: 'friend_123',
     sticker: ARG5,
+    rawFormat: false,
     showNames: false,
   });
   assert.deepEqual(parseStickerMessage('friends'), {

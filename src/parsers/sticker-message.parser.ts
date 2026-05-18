@@ -29,7 +29,14 @@ export type ParsedBotMessage =
   | { intent: 'tradeCancel'; tradeId: string; showNames: boolean }
   | { intent: 'marketplaceSearch'; search: MarketplaceSearch; showNames: boolean }
   | { intent: 'missing'; countryCode?: string; showNames: boolean }
-  | { intent: 'duplicates'; countryCode?: string; sticker?: StickerRef; targetUsername?: string; showNames: boolean }
+  | {
+    intent: 'duplicates';
+    countryCode?: string;
+    sticker?: StickerRef;
+    targetUsername?: string;
+    rawFormat: boolean;
+    showNames: boolean;
+  }
   | { intent: 'anyNumber'; number: number; showNames: boolean }
   | { intent: 'friendsList'; showNames: boolean }
   | { intent: 'friendAdd'; targetUsername: string; showNames: boolean }
@@ -328,6 +335,28 @@ const parseDuplicateScope = (
   }
 
   return null;
+};
+
+const stripDuplicateRawFlag = (
+  input: string,
+): { remainder: string; rawFormat: boolean } => {
+  const tokens = normalizeForParsing(input).split(/\s+/).filter(Boolean);
+  const remainderTokens: string[] = [];
+  let rawFormat = false;
+
+  for (const token of tokens) {
+    if (token === '-r') {
+      rawFormat = true;
+      continue;
+    }
+
+    remainderTokens.push(token);
+  }
+
+  return {
+    remainder: remainderTokens.join(' '),
+    rawFormat,
+  };
 };
 
 const parseTradeOperandMatches = (
@@ -724,6 +753,7 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
       ? {
         intent: 'duplicates',
         targetUsername: duplicatesUserMatch[1].toLowerCase(),
+        rawFormat: false,
         ...scope,
         showNames,
       }
@@ -865,11 +895,12 @@ export const parseStickerMessage = (rawText: string): ParsedBotMessage => {
   }
 
   if (intent === 'duplicates') {
-    const scope = parseDuplicateScope(remainder);
+    const { remainder: duplicateRemainder, rawFormat } = stripDuplicateRawFlag(remainder);
+    const scope = parseDuplicateScope(duplicateRemainder);
 
-    return scope
-      ? { intent, ...scope, showNames }
-      : { intent, countryCode: undefined, showNames };
+    return scope && (scope.countryCode || scope.sticker)
+      ? { intent, ...scope, rawFormat, showNames }
+      : { intent, countryCode: undefined, rawFormat, showNames };
   }
 
   const sticker = parseStickerRef(remainder);

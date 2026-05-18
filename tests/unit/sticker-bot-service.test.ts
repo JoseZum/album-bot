@@ -400,6 +400,32 @@ serialTest('missing without argument returns compact album-wide missing sections
   assert.doesNotMatch(missing.reply, /<b>WP<\/b>/);
 });
 
+serialTest('duplicates -r returns compact country lines without affecting sticker-specific replies', async () => {
+  const { repository, service } = await createHarness();
+
+  await registerUserWithAlbum(service, repository, 'owner-a', 'collector_a', 'Collector Album');
+
+  const emptyDuplicates = await service.handleMessage('duplicates -r', 'owner-a');
+
+  assert.equal(emptyDuplicates.parseMode, 'HTML');
+  assert.equal(emptyDuplicates.reply, 'You do not have duplicate stickers.');
+  assert.equal((await service.handleMessage('duplicates -r usa', 'owner-a')).reply, 'You do not have duplicates from USA.');
+
+  await service.handleMessage('add arg2', 'owner-a');
+  await service.handleMessage('add arg2', 'owner-a');
+  await service.handleMessage('add bra3', 'owner-a');
+  await service.handleMessage('add bra3', 'owner-a');
+  await service.handleMessage('add bra4', 'owner-a');
+  await service.handleMessage('add bra4', 'owner-a');
+
+  const rawDuplicates = await service.handleMessage('duplicates -r', 'owner-a');
+
+  assert.equal(rawDuplicates.parseMode, 'HTML');
+  assert.equal(rawDuplicates.reply, 'ARG \u{1F1E6}\u{1F1F7}: 2\nBRA \u{1F1E7}\u{1F1F7}: 3, 4');
+  assert.equal((await service.handleMessage('dups bra -r', 'owner-a')).reply, 'BRA \u{1F1E7}\u{1F1F7}: 3, 4');
+  assert.equal((await service.handleMessage('duplicates -r arg2', 'owner-a')).reply, '<b>Duplicates:</b>\n\nARG 2 (1)');
+});
+
 serialTest('jpn stickers persist with the JPN user-facing code and invalid add text errors', async () => {
   const { repository, service } = await createHarness();
 

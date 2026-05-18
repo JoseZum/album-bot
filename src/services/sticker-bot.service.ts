@@ -467,7 +467,7 @@ export class StickerBotService {
         }));
       case 'menu:cards:duplicates':
         return this.cardsMenuAlbumAction(ownerId, language, async () => ({
-          reply: await this.showDuplicates(ownerId, undefined, undefined, false, language),
+          reply: await this.showDuplicates(ownerId, undefined, undefined, false, false, language),
           parseMode: 'HTML',
         }));
       case 'menu:cards:add-remove':
@@ -608,7 +608,14 @@ export class StickerBotService {
               parsed.showNames,
               language,
             )
-            : await this.showDuplicates(ownerId, parsed.countryCode, parsed.sticker, parsed.showNames, language),
+            : await this.showDuplicates(
+              ownerId,
+              parsed.countryCode,
+              parsed.sticker,
+              parsed.rawFormat,
+              parsed.showNames,
+              language,
+            ),
           parseMode: 'HTML',
         };
       case 'anyNumber':
@@ -1500,12 +1507,13 @@ export class StickerBotService {
     ownerId: string,
     countryCode: string | undefined,
     sticker: StickerRef | undefined,
+    rawFormat: boolean,
     showNames: boolean,
     language: BotLanguage,
   ): Promise<string> {
     const [duplicates, countryStats] = await Promise.all([
       this.repository.listDuplicateStickers(ownerId, countryCode, sticker),
-      countryCode && !sticker
+      countryCode && !sticker && !rawFormat
         ? this.getCountryStats(ownerId, countryCode)
         : Promise.resolve(null),
     ]);
@@ -1518,6 +1526,10 @@ export class StickerBotService {
       return countryCode
         ? t(language, 'duplicatesCountryNone', { countryCode })
         : t(language, 'duplicatesNone');
+    }
+
+    if (rawFormat && !sticker) {
+      return this.formatRawDuplicateCountryLines(duplicates);
     }
 
     if (countryCode && !sticker && countryStats) {
@@ -1564,7 +1576,7 @@ export class StickerBotService {
     }
 
     if (targetProfile.ownerId === ownerId) {
-      return await this.showDuplicates(ownerId, countryCode, sticker, showNames, language);
+      return await this.showDuplicates(ownerId, countryCode, sticker, false, showNames, language);
     }
 
     if (!await this.repository.areFriends(ownerId, targetProfile.ownerId)) {
@@ -2317,6 +2329,23 @@ export class StickerBotService {
         this.formatDuplicateEntryLines(entries, showNames),
       ].join('\n'))
       .join('\n\n');
+  }
+
+  private formatRawDuplicateCountryLines(
+    duplicates: { sticker: StickerRef; quantity: number }[],
+  ): string {
+    const sections = new Map<string, number[]>();
+
+    for (const duplicate of duplicates) {
+      const entries = sections.get(duplicate.sticker.countryCode) ?? [];
+      entries.push(duplicate.sticker.number);
+      sections.set(duplicate.sticker.countryCode, entries);
+    }
+
+    return Array.from(sections.entries())
+      .map(([countryCode, entries]) =>
+        `${countryCode} ${getCountryFlag(countryCode)}: ${entries.slice().sort((left, right) => left - right).join(', ')}`)
+      .join('\n');
   }
 
   private validateSticker(sticker: StickerRef, language: BotLanguage): string | null {
