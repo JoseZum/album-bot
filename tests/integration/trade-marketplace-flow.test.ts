@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Pool } from 'pg';
+import { PgDb } from '../../src/db/pg.adapter';
 
 import { type StickerRef } from '../../src/catalog/world-cup.catalog';
 import { CollectionRepository } from '../../src/repositories/collection.repository';
@@ -13,7 +13,7 @@ const ARG2: StickerRef = { countryCode: 'ARG', number: 2 };
 const ARG3: StickerRef = { countryCode: 'ARG', number: 3 };
 const ARG4: StickerRef = { countryCode: 'ARG', number: 4 };
 
-const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
+const testDb = PgDb.fromConfig({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
 const TRUNCATE_SQL = `
   TRUNCATE user_album_events, user_album_items, trade_offers,
@@ -29,8 +29,8 @@ type Harness = {
 };
 
 const createHarness = async (): Promise<Harness> => {
-  await testPool.query(TRUNCATE_SQL);
-  const repository = new CollectionRepository(testPool);
+  await testDb.query(TRUNCATE_SQL);
+  const repository = new CollectionRepository(testDb);
   const service = new StickerBotService(repository);
 
   return { repository, service };
@@ -143,7 +143,7 @@ serialTest('trade marketplace lifecycle completes only after both participants c
     takerArg4: 0,
   });
 
-  const persistedRepository = new CollectionRepository(testPool);
+  const persistedRepository = new CollectionRepository(testDb);
   assert.equal((await persistedRepository.getTradeOffer('T1'))?.status, 'completed');
   assert.equal(await persistedRepository.getQuantity('owner-a', ARG4), 1);
   assert.equal(await persistedRepository.getQuantity('owner-b', ARG2), 1);
@@ -221,5 +221,5 @@ serialTest('owner can cancel active and pending own marketplace trades', async (
 }));
 
 test.after(async () => {
-  await testPool.end();
+  await testDb.end();
 });

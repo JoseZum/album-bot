@@ -4,11 +4,11 @@ import { once } from 'node:events';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { Pool } from 'pg';
+import { PgDb } from '../../src/db/pg.adapter';
 
 import { CollectionRepository } from '../../src/repositories/collection.repository';
 
-const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
+const testDb = PgDb.fromConfig({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
 const TRUNCATE_SQL = `
   TRUNCATE user_album_events, user_album_items, trade_offers,
@@ -30,7 +30,7 @@ type JsonResponse = {
 const withHttpServer = async (run: (server: TestServer) => Promise<void>): Promise<void> => {
   let server: Server | undefined;
 
-  await testPool.query(TRUNCATE_SQL);
+  await testDb.query(TRUNCATE_SQL);
 
   try {
     const { default: app } = await import('../../src/app');
@@ -107,7 +107,7 @@ const seedEnglishProfile = async (
   ownerId: string,
   username: string,
 ): Promise<void> => {
-  const repository = new CollectionRepository(testPool);
+  const repository = new CollectionRepository(testDb);
 
   await repository.registerProfile({
     ownerId,
@@ -147,7 +147,7 @@ serialTest('POST /api/bot/message registers user and returns language selection 
   assert.equal(asRecord(firstData.parsed).intent, 'start');
   assert.match(JSON.stringify(firstData.replyMarkup), /lang:en/);
 
-  const profileResult = await testPool.query(
+  const profileResult = await testDb.query(
     'SELECT * FROM collector_profiles WHERE telegram_chat_id = $1',
     [ownerId],
   );
@@ -222,7 +222,7 @@ serialTest('POST /api/bot/message can create and select albums through messages'
   assert.match(startReply, /Road to 2026/);
   assert.match(startReply, /Swap Duplicates/);
 
-  const activeAlbumResult = await testPool.query(
+  const activeAlbumResult = await testDb.query(
     `SELECT ua.name
      FROM collector_active_albums caa
      JOIN collector_profiles cp ON cp.id = caa.collector_id

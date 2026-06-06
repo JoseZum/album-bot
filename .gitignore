@@ -6,3 +6,20 @@ dist/
 ARCH.md
 postmortem.md
 ERRORES.md
+
+# Local copies of the Turso/PG database — contain user data; never commit.
+album_pg.sqlite
+album_pg.sqlite-shm
+album_pg.sqlite-wal
+album_pg.smoke.sqlite*
+album_pg_backup.dump
+album_pg_backup.sql
+
+# Turso CLI binary + shell completions pulled by ad-hoc Docker runs.
+/turso
+completions/
+
+# Throwaway scripts that often hold tokens during migration work.
+smoke-*.ts
+push-to-turso.ts
+verify-turso.ts

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Pool } from 'pg';
+import { PgDb } from '../../src/db/pg.adapter';
 
 import {
   formatSticker,
@@ -36,13 +36,13 @@ const JPN10: StickerRef = { countryCode: 'JPN', number: 10 };
 const USA2: StickerRef = { countryCode: 'USA', number: 2 };
 const WP0: StickerRef = { countryCode: 'WP', number: 0 };
 
-const testPool = new Pool({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
+const testDb = PgDb.fromConfig({ connectionString: 'postgres://album_bot:album_bot_password@localhost:5433/album_bot' });
 
 const TRUNCATE_SQL = `TRUNCATE user_album_events, user_album_items, trade_offers, collector_active_albums, user_album_members, album_share_requests, collector_friends, friend_requests, user_albums, collector_profiles RESTART IDENTITY CASCADE; ALTER SEQUENCE trade_offer_sequence RESTART WITH 1`;
 
 const createRepositoryHarness = async () => {
-  await testPool.query(TRUNCATE_SQL);
-  const repository = new CollectionRepository(testPool);
+  await testDb.query(TRUNCATE_SQL);
+  const repository = new CollectionRepository(testDb);
   const album = await repository.createAlbum(OWNER_ID, ALBUM_SLUG, 'Unit test album');
 
   assert.ok(album);
@@ -54,7 +54,7 @@ const serialTest = (name: string, fn: () => Promise<void> | void) =>
   test(name, { concurrency: false }, fn);
 
 test.after(async () => {
-  await testPool.end();
+  await testDb.end();
 });
 
 serialTest('catalog normalizes parser input consistently', () => {

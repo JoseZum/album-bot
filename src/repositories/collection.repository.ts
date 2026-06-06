@@ -1,5 +1,4 @@
-import { Pool } from 'pg';
-
+import { randomUUID } from 'crypto';
 import { getAlbumTemplate } from '../catalog/album-templates.catalog';
 import {
   WORLD_CUP_CATALOG,
@@ -12,7 +11,8 @@ import {
   type StickerRef,
 } from '../catalog/world-cup.catalog';
 import type { BotLanguage } from '../i18n/bot.i18n';
-import { pool } from '../db/pool';
+import { db as defaultDb } from '../db';
+import type { Db } from '../db/types';
 import {
   type MarketplaceSearch,
   type TradeOffer,
@@ -134,6 +134,12 @@ type AccessibleAlbumDetails = {
 // Row → TypeScript helpers
 // ---------------------------------------------------------------------------
 
+function toIso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') return value;
+  return String(value);
+}
+
 function rowToStoredProfile(row: Record<string, unknown>): StoredProfile {
   return {
     ownerId: row.telegram_chat_id as string,
@@ -142,7 +148,7 @@ function rowToStoredProfile(row: Record<string, unknown>): StoredProfile {
     lastName: (row.last_name as string | null) ?? undefined,
     displayName: (row.display_name as string | null) ?? undefined,
     language: (row.language_code as BotLanguage | null) ?? undefined,
-    updatedAt: (row.updated_at as Date).toISOString(),
+    updatedAt: toIso(row.updated_at),
   };
 }
 
@@ -176,8 +182,8 @@ function rowToShareRequest(row: Record<string, unknown>): ShareRequest {
     toUsername: (row.to_telegram_username as string | null) ?? undefined,
     collectionId: row.user_album_id as string,
     status: row.status as ShareRequestStatus,
-    createdAt: (row.created_at as Date).toISOString(),
-    respondedAt: row.answered_at ? (row.answered_at as Date).toISOString() : undefined,
+    createdAt: toIso(row.created_at),
+    respondedAt: row.answered_at ? toIso(row.answered_at) : undefined,
   };
 }
 
@@ -190,8 +196,8 @@ function rowToFriendRequest(row: Record<string, unknown>): FriendRequest {
     fromUsername: (row.from_telegram_username as string | null) ?? undefined,
     toUsername: (row.to_telegram_username as string | null) ?? undefined,
     status: row.status as FriendRequestStatus,
-    createdAt: (row.created_at as Date).toISOString(),
-    respondedAt: row.answered_at ? (row.answered_at as Date).toISOString() : undefined,
+    createdAt: toIso(row.created_at),
+    respondedAt: row.answered_at ? toIso(row.answered_at) : undefined,
   };
 }
 
@@ -243,15 +249,15 @@ function rowToTradeOffer(row: Record<string, unknown>): TradeOffer {
     give,
     want,
     status: row.status as TradeOffer['status'],
-    createdAt: (row.created_at as Date).toISOString(),
+    createdAt: toIso(row.created_at),
     reservedByOwnerId: (row.reserved_by_telegram_chat_id as string | null) ?? undefined,
     reservedCollectionId: (row.reserved_collection_id as string | null) ?? undefined,
     resolvedGive,
     resolvedWant,
-    ownerConfirmedAt: row.owner_confirmed_at ? (row.owner_confirmed_at as Date).toISOString() : undefined,
-    takerConfirmedAt: row.taker_confirmed_at ? (row.taker_confirmed_at as Date).toISOString() : undefined,
-    completedAt: row.completed_at ? (row.completed_at as Date).toISOString() : undefined,
-    cancelledAt: row.cancelled_at ? (row.cancelled_at as Date).toISOString() : undefined,
+    ownerConfirmedAt: row.owner_confirmed_at ? toIso(row.owner_confirmed_at) : undefined,
+    takerConfirmedAt: row.taker_confirmed_at ? toIso(row.taker_confirmed_at) : undefined,
+    completedAt: row.completed_at ? toIso(row.completed_at) : undefined,
+    cancelledAt: row.cancelled_at ? toIso(row.cancelled_at) : undefined,
   };
 }
 
@@ -295,7 +301,7 @@ function isUuid(value: string): boolean {
 // ---------------------------------------------------------------------------
 
 export class CollectionRepository {
-  constructor(private readonly db: Pool = pool) {}
+  constructor(private readonly db: Db = defaultDb) {}
 
   // ---- Profiles ----
 
@@ -322,8 +328,8 @@ export class CollectionRepository {
       : [finalFirstName, finalLastName].filter(Boolean).join(' ') || ownerId;
 
     const result = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO collector_profiles (telegram_chat_id, telegram_username, first_name, last_name, display_name, language_code, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now())
+      `INSERT INTO collector_profiles (id, telegram_chat_id, telegram_username, first_name, last_name, display_name, language_code, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
        ON CONFLICT (telegram_chat_id) DO UPDATE SET
          telegram_username = EXCLUDED.telegram_username,
          first_name = EXCLUDED.first_name,
@@ -332,7 +338,7 @@ export class CollectionRepository {
          language_code = EXCLUDED.language_code,
          updated_at = now()
        RETURNING *`,
-      [ownerId, finalUsername, finalFirstName, finalLastName, displayName, finalLanguage],
+      [randomUUID(), ownerId, finalUsername, finalFirstName, finalLastName, displayName, finalLanguage],
     );
 
     return rowToStoredProfile(result.rows[0]);
@@ -366,13 +372,13 @@ export class CollectionRepository {
       : normalizedOwnerId;
 
     const result = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO collector_profiles (telegram_chat_id, telegram_username, first_name, last_name, display_name, language_code, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, now())
+      `INSERT INTO collector_profiles (id, telegram_chat_id, telegram_username, first_name, last_name, display_name, language_code, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
        ON CONFLICT (telegram_chat_id) DO UPDATE SET
          language_code = EXCLUDED.language_code,
          updated_at = now()
        RETURNING *`,
-      [normalizedOwnerId, finalUsername, finalFirstName, finalLastName, displayName, language],
+      [randomUUID(), normalizedOwnerId, finalUsername, finalFirstName, finalLastName, displayName, language],
     );
 
     return rowToStoredProfile(result.rows[0]);
@@ -552,11 +558,21 @@ export class CollectionRepository {
 
     // Create the user album
     const insertResult = await this.db.query<{ id: string }>(
-      `INSERT INTO user_albums (album_id, owner_id, name) VALUES ($1, $2, $3) RETURNING id`,
-      [catalogAlbumId, ownerUuid, albumName],
+      `INSERT INTO user_albums (id, album_id, owner_id, name) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [randomUUID(), catalogAlbumId, ownerUuid, albumName],
     );
 
     const newAlbumId = insertResult.rows[0].id;
+
+    // Replicate ensure_user_album_owner_member trigger
+    await this.db.query(
+      `INSERT INTO user_album_members (user_album_id, collector_id, role, left_at)
+       VALUES ($1, $2, 'owner', NULL)
+       ON CONFLICT (user_album_id, collector_id) DO UPDATE SET
+         role = 'owner',
+         left_at = NULL`,
+      [newAlbumId, ownerUuid],
+    );
 
     // Set as active album
     await this.db.query(
@@ -931,11 +947,8 @@ export class CollectionRepository {
     stickers: StickerRef[],
   ): Promise<StickerQuantityChange[]> {
     const normalizedId = normalizeOwnerId(ownerId);
-    const client = await this.db.connect();
 
-    try {
-      await client.query('BEGIN');
-
+    return this.db.transaction(async (client) => {
       const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizedId);
       const albumTemplateResult = await client.query<{ album_id: number }>(
         `SELECT album_id FROM user_albums WHERE id = $1`,
@@ -978,20 +991,46 @@ export class CollectionRepository {
       const paddedSpecials = stickerLookupCandidates.map((candidates) => candidates[1] ?? candidates[0]);
       const triplePaddedSpecials = stickerLookupCandidates.map((candidates) => candidates[2] ?? candidates[0]);
 
-      const lookupResult = await client.query<{
-        idx: number;
-        code: string;
-      }>(
-        `SELECT idx, s.code
-         FROM unnest($1::text[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, padded_special_key, triple_padded_special_key, idx)
-         JOIN stickers s ON s.album_id = $7 AND s.sticker_number = u.sticker_number
-         LEFT JOIN teams t ON t.id = s.team_id
-         WHERE t.code = u.country_code
-            OR (u.country_name IS NOT NULL AND upper(t.name) = upper(u.country_name))
-            OR upper(s.code) IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)
-            OR regexp_replace(upper(s.subject), '\\s+', '', 'g') IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)`,
-        [codes, numbers, names, specials, paddedSpecials, triplePaddedSpecials, activeAlbumTemplateId],
-      );
+      const lookupResult = this.db.dialect === 'pg'
+        ? await client.query<{
+            idx: number;
+            code: string;
+          }>(
+            `SELECT idx, s.code
+             FROM unnest($1::text[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, padded_special_key, triple_padded_special_key, idx)
+             JOIN stickers s ON s.album_id = $7 AND s.sticker_number = u.sticker_number
+             LEFT JOIN teams t ON t.id = s.team_id
+             WHERE t.code = u.country_code
+                OR (u.country_name IS NOT NULL AND upper(t.name) = upper(u.country_name))
+                OR upper(s.code) IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)
+                OR replace(upper(s.subject), ' ', '') IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)`,
+            [codes, numbers, names, specials, paddedSpecials, triplePaddedSpecials, activeAlbumTemplateId],
+          )
+        : await client.query<{
+            idx: number;
+            code: string;
+          }>(
+            `SELECT json_extract(je.value, '$.idx') AS idx, s.code
+             FROM json_each($1) AS je
+             JOIN stickers s ON s.album_id = $2 AND s.sticker_number = json_extract(je.value, '$.n')
+             LEFT JOIN teams t ON t.id = s.team_id
+             WHERE t.code = json_extract(je.value, '$.cc')
+                OR (json_extract(je.value, '$.name') IS NOT NULL AND upper(t.name) = upper(json_extract(je.value, '$.name')))
+                OR upper(s.code) IN (json_extract(je.value, '$.s1'), json_extract(je.value, '$.s2'), json_extract(je.value, '$.s3'))
+                OR replace(upper(s.subject), ' ', '') IN (json_extract(je.value, '$.s1'), json_extract(je.value, '$.s2'), json_extract(je.value, '$.s3'))`,
+            [
+              JSON.stringify(uniqueEntries.map((_e, i) => ({
+                idx: i + 1,
+                cc: codes[i],
+                n: numbers[i],
+                name: names[i],
+                s1: specials[i],
+                s2: paddedSpecials[i],
+                s3: triplePaddedSpecials[i],
+              }))),
+              activeAlbumTemplateId,
+            ],
+          );
 
       // Map idx (1-based) → sticker DB code; keep first match per idx
       const idxToCode = new Map<number, string>();
@@ -1054,18 +1093,33 @@ export class CollectionRepository {
 
       // Batch upsert
       if (toUpsert.length > 0) {
-        await client.query(
-          `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
-           SELECT $1, u.code, 'BASE', u.qty
-           FROM unnest($2::text[], $3::int[]) AS u(code, qty)
-           ON CONFLICT (user_album_id, sticker_code, variant_code)
-           DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
-          [
-            activeAlbumId,
-            toUpsert.map((r) => r.dbCode),
-            toUpsert.map((r) => r.newQty),
-          ],
-        );
+        if (this.db.dialect === 'pg') {
+          await client.query(
+            `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
+             SELECT $1, u.code, 'BASE', u.qty
+             FROM unnest($2::text[], $3::int[]) AS u(code, qty)
+             ON CONFLICT (user_album_id, sticker_code, variant_code)
+             DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
+            [
+              activeAlbumId,
+              toUpsert.map((r) => r.dbCode),
+              toUpsert.map((r) => r.newQty),
+            ],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
+             SELECT $1, json_extract(je.value, '$.c'), 'BASE', json_extract(je.value, '$.q')
+             FROM json_each($2) AS je
+             WHERE true
+             ON CONFLICT (user_album_id, sticker_code, variant_code)
+             DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = datetime('now')`,
+            [
+              activeAlbumId,
+              JSON.stringify(toUpsert.map((r) => ({ c: r.dbCode, q: r.newQty }))),
+            ],
+          );
+        }
       }
 
       // Batch delete (quantity reached 0)
@@ -1080,22 +1134,34 @@ export class CollectionRepository {
       // Batch history insert — only for rows that actually changed
       const changedRows = changes.filter((c) => c.changed);
       if (collectorUuid && changedRows.length > 0) {
-        await client.query(
-          `INSERT INTO user_album_events
-             (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
-           SELECT $1, $2, u.code, 'BASE', 'add', u.prev, u.curr, u.curr - u.prev
-           FROM unnest($3::text[], $4::int[], $5::int[]) AS u(code, prev, curr)`,
-          [
-            activeAlbumId,
-            collectorUuid,
-            changedRows.map((c) => c.dbCode),
-            changedRows.map((c) => c.previousQuantity),
-            changedRows.map((c) => c.currentQuantity),
-          ],
-        );
+        if (this.db.dialect === 'pg') {
+          await client.query(
+            `INSERT INTO user_album_events
+               (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
+             SELECT $1, $2, u.code, 'BASE', 'add', u.prev, u.curr, u.curr - u.prev
+             FROM unnest($3::text[], $4::int[], $5::int[]) AS u(code, prev, curr)`,
+            [
+              activeAlbumId,
+              collectorUuid,
+              changedRows.map((c) => c.dbCode),
+              changedRows.map((c) => c.previousQuantity),
+              changedRows.map((c) => c.currentQuantity),
+            ],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO user_album_events
+               (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
+             SELECT $1, $2, json_extract(je.value, '$.c'), 'BASE', 'add', json_extract(je.value, '$.p'), json_extract(je.value, '$.n'), json_extract(je.value, '$.n') - json_extract(je.value, '$.p')
+             FROM json_each($3) AS je`,
+            [
+              activeAlbumId,
+              collectorUuid,
+              JSON.stringify(changedRows.map((c) => ({ c: c.dbCode, p: c.previousQuantity, n: c.currentQuantity }))),
+            ],
+          );
+        }
       }
-
-      await client.query('COMMIT');
 
       // Build final result: unknown stickers as no-op changes
       const unknownChanges: StickerQuantityChange[] = unknown.map((s) => ({
@@ -1109,12 +1175,7 @@ export class CollectionRepository {
         ...changes.map(({ dbCode: _dbCode, ...rest }) => rest),
         ...unknownChanges,
       ];
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   // ---- Bulk sticker remove ----
@@ -1124,11 +1185,8 @@ export class CollectionRepository {
     stickers: StickerRef[],
   ): Promise<StickerQuantityChange[]> {
     const normalizedId = normalizeOwnerId(ownerId);
-    const client = await this.db.connect();
 
-    try {
-      await client.query('BEGIN');
-
+    return this.db.transaction(async (client) => {
       const activeAlbumId = await this.getActiveAlbumIdOrThrow(normalizedId);
       const albumTemplateResult = await client.query<{ album_id: number }>(
         `SELECT album_id FROM user_albums WHERE id = $1`,
@@ -1167,20 +1225,46 @@ export class CollectionRepository {
       const paddedSpecials = stickerLookupCandidates.map((candidates) => candidates[1] ?? candidates[0]);
       const triplePaddedSpecials = stickerLookupCandidates.map((candidates) => candidates[2] ?? candidates[0]);
 
-      const lookupResult = await client.query<{
-        idx: number;
-        code: string;
-      }>(
-        `SELECT idx, s.code
-         FROM unnest($1::text[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, padded_special_key, triple_padded_special_key, idx)
-         JOIN stickers s ON s.album_id = $7 AND s.sticker_number = u.sticker_number
-         LEFT JOIN teams t ON t.id = s.team_id
-         WHERE t.code = u.country_code
-            OR (u.country_name IS NOT NULL AND upper(t.name) = upper(u.country_name))
-            OR upper(s.code) IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)
-            OR regexp_replace(upper(s.subject), '\\s+', '', 'g') IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)`,
-        [codes, numbers, names, specials, paddedSpecials, triplePaddedSpecials, activeAlbumTemplateId],
-      );
+      const lookupResult = this.db.dialect === 'pg'
+        ? await client.query<{
+            idx: number;
+            code: string;
+          }>(
+            `SELECT idx, s.code
+             FROM unnest($1::text[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[]) WITH ORDINALITY AS u(country_code, sticker_number, country_name, special_key, padded_special_key, triple_padded_special_key, idx)
+             JOIN stickers s ON s.album_id = $7 AND s.sticker_number = u.sticker_number
+             LEFT JOIN teams t ON t.id = s.team_id
+             WHERE t.code = u.country_code
+                OR (u.country_name IS NOT NULL AND upper(t.name) = upper(u.country_name))
+                OR upper(s.code) IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)
+                OR replace(upper(s.subject), ' ', '') IN (u.special_key, u.padded_special_key, u.triple_padded_special_key)`,
+            [codes, numbers, names, specials, paddedSpecials, triplePaddedSpecials, activeAlbumTemplateId],
+          )
+        : await client.query<{
+            idx: number;
+            code: string;
+          }>(
+            `SELECT json_extract(je.value, '$.idx') AS idx, s.code
+             FROM json_each($1) AS je
+             JOIN stickers s ON s.album_id = $2 AND s.sticker_number = json_extract(je.value, '$.n')
+             LEFT JOIN teams t ON t.id = s.team_id
+             WHERE t.code = json_extract(je.value, '$.cc')
+                OR (json_extract(je.value, '$.name') IS NOT NULL AND upper(t.name) = upper(json_extract(je.value, '$.name')))
+                OR upper(s.code) IN (json_extract(je.value, '$.s1'), json_extract(je.value, '$.s2'), json_extract(je.value, '$.s3'))
+                OR replace(upper(s.subject), ' ', '') IN (json_extract(je.value, '$.s1'), json_extract(je.value, '$.s2'), json_extract(je.value, '$.s3'))`,
+            [
+              JSON.stringify(uniqueEntries.map((_e, i) => ({
+                idx: i + 1,
+                cc: codes[i],
+                n: numbers[i],
+                name: names[i],
+                s1: specials[i],
+                s2: paddedSpecials[i],
+                s3: triplePaddedSpecials[i],
+              }))),
+              activeAlbumTemplateId,
+            ],
+          );
 
       const idxToCode = new Map<number, string>();
       for (const row of lookupResult.rows) {
@@ -1238,18 +1322,33 @@ export class CollectionRepository {
       }
 
       if (toUpsert.length > 0) {
-        await client.query(
-          `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
-           SELECT $1, u.code, 'BASE', u.qty
-           FROM unnest($2::text[], $3::int[]) AS u(code, qty)
-           ON CONFLICT (user_album_id, sticker_code, variant_code)
-           DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
-          [
-            activeAlbumId,
-            toUpsert.map((r) => r.dbCode),
-            toUpsert.map((r) => r.newQty),
-          ],
-        );
+        if (this.db.dialect === 'pg') {
+          await client.query(
+            `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
+             SELECT $1, u.code, 'BASE', u.qty
+             FROM unnest($2::text[], $3::int[]) AS u(code, qty)
+             ON CONFLICT (user_album_id, sticker_code, variant_code)
+             DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = now()`,
+            [
+              activeAlbumId,
+              toUpsert.map((r) => r.dbCode),
+              toUpsert.map((r) => r.newQty),
+            ],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO user_album_items (user_album_id, sticker_code, variant_code, quantity)
+             SELECT $1, json_extract(je.value, '$.c'), 'BASE', json_extract(je.value, '$.q')
+             FROM json_each($2) AS je
+             WHERE true
+             ON CONFLICT (user_album_id, sticker_code, variant_code)
+             DO UPDATE SET quantity = EXCLUDED.quantity, updated_at = datetime('now')`,
+            [
+              activeAlbumId,
+              JSON.stringify(toUpsert.map((r) => ({ c: r.dbCode, q: r.newQty }))),
+            ],
+          );
+        }
       }
 
       if (toDelete.length > 0) {
@@ -1262,22 +1361,34 @@ export class CollectionRepository {
 
       const changedRows = changes.filter((c) => c.changed);
       if (collectorUuid && changedRows.length > 0) {
-        await client.query(
-          `INSERT INTO user_album_events
-             (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
-           SELECT $1, $2, u.code, 'BASE', 'remove', u.prev, u.curr, u.curr - u.prev
-           FROM unnest($3::text[], $4::int[], $5::int[]) AS u(code, prev, curr)`,
-          [
-            activeAlbumId,
-            collectorUuid,
-            changedRows.map((c) => c.dbCode),
-            changedRows.map((c) => c.previousQuantity),
-            changedRows.map((c) => c.currentQuantity),
-          ],
-        );
+        if (this.db.dialect === 'pg') {
+          await client.query(
+            `INSERT INTO user_album_events
+               (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
+             SELECT $1, $2, u.code, 'BASE', 'remove', u.prev, u.curr, u.curr - u.prev
+             FROM unnest($3::text[], $4::int[], $5::int[]) AS u(code, prev, curr)`,
+            [
+              activeAlbumId,
+              collectorUuid,
+              changedRows.map((c) => c.dbCode),
+              changedRows.map((c) => c.previousQuantity),
+              changedRows.map((c) => c.currentQuantity),
+            ],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO user_album_events
+               (user_album_id, collector_id, sticker_code, variant_code, action, previous_quantity, current_quantity, quantity_delta)
+             SELECT $1, $2, json_extract(je.value, '$.c'), 'BASE', 'remove', json_extract(je.value, '$.p'), json_extract(je.value, '$.n'), json_extract(je.value, '$.n') - json_extract(je.value, '$.p')
+             FROM json_each($3) AS je`,
+            [
+              activeAlbumId,
+              collectorUuid,
+              JSON.stringify(changedRows.map((c) => ({ c: c.dbCode, p: c.previousQuantity, n: c.currentQuantity }))),
+            ],
+          );
+        }
       }
-
-      await client.query('COMMIT');
 
       const unknownChanges: StickerQuantityChange[] = unknown.map((s) => ({
         sticker: s,
@@ -1290,12 +1401,7 @@ export class CollectionRepository {
         ...changes.map(({ dbCode: _dbCode, ...rest }) => rest),
         ...unknownChanges,
       ];
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async recordHistory(ownerId: string, entry: StickerHistoryEntry): Promise<void> {
@@ -1365,7 +1471,7 @@ export class CollectionRepository {
     const previousQuantity = eventRow.previous_quantity as number;
     const currentQuantity = eventRow.current_quantity as number;
     const action = eventRow.action as StickerHistoryAction;
-    const timestamp = (eventRow.created_at as Date).toISOString();
+    const timestamp = toIso(eventRow.created_at);
 
     // Restore previous quantity
     if (previousQuantity === 0) {
@@ -1433,7 +1539,7 @@ export class CollectionRepository {
     return {
       friends: friendsResult.rows.map((row) => ({
         ...rowToStoredProfile(row),
-        friendsSince: (row.friends_since as Date).toISOString(),
+        friendsSince: toIso(row.friends_since),
       })),
       incomingRequests: pendingResult.rows
         .filter((row) => row.to_collector_id === collectorUuid)
@@ -1726,10 +1832,10 @@ export class CollectionRepository {
     }
 
     const insertResult = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO friend_requests (from_collector_id, to_collector_id, status)
-       VALUES ($1, $2, 'pending')
+      `INSERT INTO friend_requests (id, from_collector_id, to_collector_id, status)
+       VALUES ($1, $2, $3, 'pending')
        RETURNING *`,
-      [fromUuid, toUuid],
+      [randomUUID(), fromUuid, toUuid],
     );
 
     const requestResult = await this.getFriendRequestRow(insertResult.rows[0].id as string);
@@ -1895,10 +2001,10 @@ export class CollectionRepository {
 
     // Create new request
     const insertResult = await this.db.query<Record<string, unknown>>(
-      `INSERT INTO album_share_requests (user_album_id, from_collector_id, to_collector_id, status)
-       VALUES ($1, $2, $3, 'pending')
+      `INSERT INTO album_share_requests (id, user_album_id, from_collector_id, to_collector_id, status)
+       VALUES ($1, $2, $3, $4, 'pending')
        RETURNING *`,
-      [activeAlbumId, fromUuid, toUuid],
+      [randomUUID(), activeAlbumId, fromUuid, toUuid],
     );
 
     const row = insertResult.rows[0];
@@ -1910,7 +2016,7 @@ export class CollectionRepository {
       targetUsername: normalizedTargetUsername,
       collectionId: activeAlbumId,
       status: 'pending',
-      createdAt: (row.created_at as Date).toISOString(),
+      createdAt: toIso(row.created_at),
     };
 
     return { request: shareRequest };
@@ -2034,7 +2140,7 @@ export class CollectionRepository {
       targetUsername: (row.to_telegram_username as string | null) ?? normalizedResponderOwnerId,
       collectionId,
       status: 'accepted',
-      createdAt: (row.created_at as Date).toISOString(),
+      createdAt: toIso(row.created_at),
       respondedAt: new Date().toISOString(),
     };
 
@@ -2092,7 +2198,7 @@ export class CollectionRepository {
       targetUsername: (row.to_telegram_username as string | null) ?? normalizedResponderOwnerId,
       collectionId: row.user_album_id as string,
       status: 'declined',
-      createdAt: (row.created_at as Date).toISOString(),
+      createdAt: toIso(row.created_at),
       respondedAt: new Date().toISOString(),
     };
 
@@ -2174,13 +2280,6 @@ export class CollectionRepository {
       return { error: wantError };
     }
 
-    // Get next sequence ID
-    const seqResult = await this.db.query<{ next_id: string }>(
-      `SELECT 'T' || nextval('trade_offer_sequence') AS next_id`,
-    );
-
-    const tradeId = seqResult.rows[0].next_id;
-
     // Build give/want columns
     const giveKind = give.kind;
     const giveCountryCode = give.kind === 'sticker' ? give.sticker.countryCode : (give.countryCode ?? null);
@@ -2189,14 +2288,23 @@ export class CollectionRepository {
     const wantCountryCode = want.kind === 'sticker' ? want.sticker.countryCode : (want.countryCode ?? null);
     const wantStickerNumber = want.kind === 'sticker' ? want.sticker.number : null;
 
-    await this.db.query(
-      `INSERT INTO trade_offers
-         (id, owner_id, collection_id, give_kind, give_country_code, give_sticker_number,
-          want_kind, want_country_code, want_sticker_number, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')`,
-      [tradeId, ownerUuid, activeAlbumId, giveKind, giveCountryCode, giveStickerNumber,
-        wantKind, wantCountryCode, wantStickerNumber],
-    );
+    const tradeId = await this.db.transaction(async (client) => {
+      const counterRow = await client.query<{ next: number }>(
+        `SELECT COALESCE(MAX(CAST(SUBSTR(id, 2) AS INTEGER)), 0) + 1 AS next FROM trade_offers WHERE id LIKE 'T%'`,
+      );
+      const tradeCode = `T${counterRow.rows[0].next}`;
+
+      await client.query(
+        `INSERT INTO trade_offers
+           (id, owner_id, collection_id, give_kind, give_country_code, give_sticker_number,
+            want_kind, want_country_code, want_sticker_number, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')`,
+        [tradeCode, ownerUuid, activeAlbumId, giveKind, giveCountryCode, giveStickerNumber,
+          wantKind, wantCountryCode, wantStickerNumber],
+      );
+
+      return tradeCode;
+    });
 
     const offer = await this.getTradeOfferById(tradeId);
 
@@ -2690,11 +2798,11 @@ export class CollectionRepository {
     }
 
     const result = await this.db.query<{ id: string }>(
-      `INSERT INTO collector_profiles (telegram_chat_id, display_name)
-       VALUES ($1, $1)
+      `INSERT INTO collector_profiles (id, telegram_chat_id, display_name)
+       VALUES ($1, $2, $2)
        ON CONFLICT (telegram_chat_id) DO UPDATE SET telegram_chat_id = EXCLUDED.telegram_chat_id
        RETURNING id`,
-      [ownerId],
+      [randomUUID(), ownerId],
     );
 
     return result.rows[0].id;
