@@ -84,7 +84,11 @@ export class SqliteDb implements Db {
   private readonly wrapper: LibsqlClient;
 
   constructor(config: SqliteDbConfig) {
-    this.client = createClient({ url: config.url, authToken: config.authToken, intMode: 'number' });
+    // Strip whitespace/newlines that env-var UIs and clipboards sometimes inject.
+    // Without this, a stray "\n" at the end of the token makes Turso return HTTP 400.
+    const url = config.url.trim();
+    const authToken = config.authToken?.trim() || undefined;
+    this.client = createClient({ url, authToken, intMode: 'number' });
     this.wrapper = new LibsqlClient(this.client);
   }
 
