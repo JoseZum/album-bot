@@ -2101,7 +2101,9 @@ export class CollectionRepository {
            FROM user_album_items src
            WHERE src.user_album_id = $2 AND src.variant_code = 'BASE'
            ON CONFLICT (user_album_id, sticker_code, variant_code) DO UPDATE
-             SET quantity = GREATEST(user_album_items.quantity, EXCLUDED.quantity),
+             SET quantity = CASE WHEN user_album_items.quantity > EXCLUDED.quantity
+                                 THEN user_album_items.quantity
+                                 ELSE EXCLUDED.quantity END,
                  updated_at = now()`,
           [collectionId, responderActiveAlbumId],
         );
@@ -2844,7 +2846,7 @@ export class CollectionRepository {
            t.code = $1
            OR ($3::text IS NOT NULL AND upper(t.name) = upper($3))
            OR upper(s.code) = ANY($4::text[])
-           OR regexp_replace(upper(s.subject), '\s+', '', 'g') = ANY($4::text[])
+           OR replace(upper(s.subject), ' ', '') = ANY($4::text[])
          )`,
       [sticker.countryCode.toUpperCase(), sticker.number, country?.name ?? null, lookupCandidates],
     );
