@@ -84,10 +84,12 @@ export class SqliteDb implements Db {
   private readonly wrapper: LibsqlClient;
 
   constructor(config: SqliteDbConfig) {
-    // Strip whitespace/newlines that env-var UIs and clipboards sometimes inject.
-    // Without this, a stray "\n" at the end of the token makes Turso return HTTP 400.
-    const url = config.url.trim();
-    const authToken = config.authToken?.trim() || undefined;
+    // Strip ALL whitespace (including newlines/spaces injected mid-token by env-var
+    // UIs that wrap long values). JWTs never contain whitespace; any \s in the value
+    // is corruption. With only .trim() Render's mid-string wrap still breaks the
+    // Authorization header (undici rejects newlines in header values).
+    const url = config.url.replace(/\s+/g, '');
+    const authToken = config.authToken?.replace(/\s+/g, '') || undefined;
     this.client = createClient({ url, authToken, intMode: 'number' });
     this.wrapper = new LibsqlClient(this.client);
   }
