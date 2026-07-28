@@ -1,61 +1,68 @@
-<p align="center">
-  <img src="./public/logo.png" alt="Album Bot" width="220">
-</p>
+<div align="center">
 
-# Album Bot
+<img src="./public/logo.png" alt="Album Bot" width="400">
 
-Bot de Telegram para administrar albums de estampas coleccionables. Centraliza catalogo, progreso, faltantes, repetidas, amistades, albums compartidos e intercambios en una API Express conectada a PostgreSQL y operada directamente desde el chat.
+# Album Bot - API
 
-`Capacidades` | `Garantias` | `Arquitectura` | `Instalacion` | `API`
+Plataforma de coleccionismo para administrar álbumes de estampas desde Telegram. Centraliza catálogo, progreso, faltantes, repetidas, amistades, álbumes compartidos e intercambios en una API diseñada para colecciones colaborativas.
 
-* * *
+[![Node.js](https://img.shields.io/badge/Node.js-22+-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Express](https://img.shields.io/badge/Express-4.21-000000?style=for-the-badge&logo=express&logoColor=white)](https://expressjs.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot%20API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![CI](https://img.shields.io/github/actions/workflow/status/JoseZum/album-bot/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/JoseZum/album-bot/actions/workflows/ci.yml)
+
+**[Capacidades](#capacidades-principales) · [Garantías](#garantías-operativas) · [Arquitectura](#arquitectura-de-la-aplicación) · [Instalación](#instalación-local) · [Comandos](#comandos-del-bot)**
+
+</div>
+
+---
 
 ## Capacidades principales
 
-Area | Responsabilidad
---- | ---
-Coleccion | Registra estampas individuales o en lote, calcula progreso, detecta faltantes y lista repetidas por pais o estampa.
-Albums | Permite crear varios albums, cambiar el album activo, renombrarlo, borrarlo o salir de albums compartidos.
-Amigos | Gestiona solicitudes de amistad, consulta repetidas de otros coleccionistas y habilita comparaciones directas.
-Compartir | Comparte un album activo con otra persona mediante solicitudes explicitas aceptadas desde Telegram.
-Marketplace | Publica ofertas, filtra el mercado por usuario o estampa, propone intercambios y coordina su cierre.
-Telegram | Procesa mensajes y callbacks por webhook, ofrece menus inline, soporte bilingue y rate limiting por usuario.
+| Área | Responsabilidad |
+| :-- | :-- |
+| **Colección** | Registra estampas individuales o en lote, calcula progreso, detecta faltantes y lista repetidas por país o estampa. |
+| **Álbumes** | Permite crear varios álbumes, cambiar el álbum activo, renombrarlo, borrarlo o salir de álbumes compartidos. |
+| **Amigos** | Gestiona solicitudes de amistad, consulta repetidas de otros coleccionistas y habilita comparaciones directas. |
+| **Compartir** | Comparte un álbum activo con otra persona mediante solicitudes explícitas aceptadas desde Telegram. |
+| **Marketplace** | Publica ofertas, filtra el mercado por usuario o estampa, propone intercambios y coordina su cierre. |
+| **Telegram** | Procesa mensajes y callbacks por webhook, ofrece menús inline, soporte bilingüe y rate limiting por usuario. |
 
-## Garantias operativas
+## Garantías operativas
 
-El bot aplica reglas de negocio en varias capas: el parser normaliza aliases de paises y comandos, la capa de servicio protege el flujo de albums y amistades, y PostgreSQL conserva el estado compartido de colecciones, ofertas y membresias.
+El bot aplica reglas de negocio en varias capas: el parser normaliza aliases de países y comandos, la capa de servicio protege el flujo de álbumes y amistades, y PostgreSQL conserva el estado compartido de colecciones, ofertas y membresías.
 
-Garantia | Implementacion
---- | ---
-Album activo | Las acciones de inventario requieren un album activo antes de modificar o consultar la coleccion.
-Comparticion explicita | Las invitaciones de album y amistad requieren aceptacion del destinatario antes de habilitar acceso.
-Intercambio coordinado | Las ofertas pasan por estados `active`, `pending_confirmation`, `accepted_pending_completion`, `completed`, `cancelled` y `expired`.
-Consistencia de inventario | El cierre de un intercambio actualiza cantidades solo cuando ambas partes lo confirman y la disponibilidad sigue existiendo.
-Tolerancia de entrada | Los comandos aceptan aliases, nombres de pais, codigos, formatos flexibles y lotes de hasta 100 estampas.
-Operacion observable | El servicio expone salud de base de datos y metricas Prometheus para inspeccion externa.
+| Garantía | Implementación |
+| :-- | :-- |
+| **Álbum activo** | Las acciones de inventario requieren un álbum activo antes de modificar o consultar la colección. |
+| **Compartición explícita** | Las invitaciones de álbum y amistad requieren aceptación del destinatario antes de habilitar acceso. |
+| **Intercambio coordinado** | Las ofertas pasan por estados `active`, `pending_confirmation`, `accepted_pending_completion`, `completed`, `cancelled` y `expired`. |
+| **Consistencia de inventario** | El cierre de un intercambio actualiza cantidades solo cuando ambas partes lo confirman y la disponibilidad sigue existiendo. |
+| **Tolerancia de entrada** | Los comandos aceptan aliases, nombres de país, códigos, formatos flexibles y lotes de hasta 100 estampas. |
+| **Operación observable** | El servicio expone salud de base de datos y métricas Prometheus para inspección externa. |
 
-## Arquitectura de la aplicacion
+## Arquitectura de la aplicación
 
-La solucion se despliega como una API Express. Telegram envia mensajes y callbacks al webhook; el servicio registra al usuario, interpreta el comando, aplica la regla de negocio correspondiente y responde al chat o notifica a otros coleccionistas cuando el flujo lo requiere.
+La solución se despliega como una API Express conectada a PostgreSQL. Telegram envía mensajes y callbacks al webhook; el servicio registra al usuario, interpreta el comando, aplica la regla de negocio correspondiente y responde al chat o notifica a otros coleccionistas cuando el flujo lo requiere.
 
-El codigo se organiza por dominios y separa transporte, logica y persistencia: `routes -> controllers -> services -> repositories`. `src/app.ts` compone la aplicacion HTTP, `src/server.ts` la ejecuta localmente, y la capa `db/` permite usar PostgreSQL como base principal o LibSQL/Turso como alternativa opcional.
+El código se organiza por dominios y separa transporte, lógica y persistencia: `routes -> controllers -> services -> repositories`. `src/app.ts` compone la aplicación HTTP, `src/server.ts` la ejecuta localmente, y la capa `db/` permite usar PostgreSQL como base principal o LibSQL/Turso como alternativa opcional.
 
-El catalogo actual modela el album `Panini FIFA World Cup 2026`, incluyendo equipos, secciones especiales, nombres de jugadores, resolucion de paginas y aliases de paises para entrada libre por chat.
+El catálogo actual modela el álbum `Panini FIFA World Cup 2026`, incluyendo equipos, secciones especiales, nombres de jugadores, resolución de páginas y aliases de países para entrada libre por chat.
 
-## Tecnologias
+## Tecnologías
 
-Area | Tecnologias
---- | ---
-Core | Node.js, TypeScript y Express
-Persistencia principal | PostgreSQL y `pg`
-Persistencia alternativa | LibSQL / Turso mediante `@libsql/client`
-Integracion | Telegram Bot API por webhook
-Observabilidad | `prom-client`
-Testing | Node.js Test Runner y `tsx`
-Infraestructura local | Docker Compose
-Despliegue | Render
+| Área | Tecnologías |
+| :-- | :-- |
+| **Core** | Node.js, TypeScript, Express y PostgreSQL |
+| **Integración** | Telegram Bot API por webhook |
+| **Persistencia alternativa** | LibSQL / Turso mediante `@libsql/client` |
+| **Observabilidad** | `prom-client` y métricas Prometheus |
+| **Testing** | Node.js Test Runner y `tsx` |
+| **Infraestructura** | Docker Compose y Render |
 
-## Instalacion local
+## Instalación local
 
 ### Requisitos
 
@@ -76,7 +83,7 @@ npm run dev
 
 La API queda disponible en `http://localhost:3000`.
 
-El contrato minimo de entorno vive en [`.env.example`](./.env.example). Para usar LibSQL o Turso en lugar de PostgreSQL, agrega manualmente `DB_DRIVER=sqlite` y `LIBSQL_URL`; si la instancia es remota, tambien `LIBSQL_AUTH_TOKEN`.
+El contrato mínimo de entorno vive en [`.env.example`](./.env.example). Para usar LibSQL o Turso en lugar de PostgreSQL, agrega manualmente `DB_DRIVER=sqlite` y `LIBSQL_URL`; si la instancia es remota, también `LIBSQL_AUTH_TOKEN`.
 
 ### Comandos habituales
 
@@ -167,7 +174,7 @@ Content-Type: application/json
 }
 ```
 
-Ejecuta la misma logica del bot sin depender de un update real de Telegram.
+Ejecuta la misma lógica del bot sin depender de un update real de Telegram.
 
 ### Salud
 
@@ -184,7 +191,7 @@ Respuesta esperada:
 }
 ```
 
-### Metricas
+### Métricas
 
 ```http
 GET /metrics
@@ -192,9 +199,9 @@ GET /metrics
 
 Expone contadores y duraciones HTTP en formato Prometheus.
 
-## Integracion con Telegram
+## Integración con Telegram
 
-Crea un bot en BotFather y configura su token en `TELEGRAM_BOT_TOKEN`. Cuando la API tenga una URL publica con HTTPS, registra el webhook:
+Crea un bot en BotFather y configura su token en `TELEGRAM_BOT_TOKEN`. Cuando la API tenga una URL pública con HTTPS, registra el webhook:
 
 ```bash
 curl --request POST \
@@ -202,7 +209,7 @@ curl --request POST \
   --data-urlencode "url=https://your-domain.com/api/telegram/webhook"
 ```
 
-Verifica la configuracion:
+Verifica la configuración:
 
 ```bash
 curl \
@@ -216,41 +223,19 @@ curl \
 - La suite incluye pruebas unitarias e integrales para parser, repositorio, API HTTP y flujo de marketplace.
 - El repo incorpora `compose.yml` para levantar PostgreSQL local y `render.yaml` para desplegar la API en Render.
 
-## Estructura del repositorio
-
 ```text
-src/
-|-- catalog/         # catalogos de album, paginas y estampas
-|-- commands/        # mutaciones de inventario
-|-- config/          # entorno y metricas
-|-- controllers/     # entrada HTTP y Telegram
-|-- db/              # adapters y conexion
-|-- i18n/            # mensajes del bot
-|-- parsers/         # comandos y normalizacion
-|-- repositories/    # persistencia y consultas
-|-- routes/          # rutas Express
-|-- services/        # orquestacion del bot y Telegram
-|-- trades/          # dominio de intercambios
-|-- utils/           # rate limiting
-|-- app.ts           # composicion HTTP
-`-- server.ts        # entry point local
-
-db/
-|-- 01-schema.sql
-|-- 02-seed-album-data.sql
-|-- 03-trade-offers.sql
-|-- 04-drop-sticker-fks.sql
-`-- 05-friends.sql
-
-tests/
-|-- integration/
-`-- unit/
+src/                 application code
+db/                  PostgreSQL schema and seed data
+tests/               unit and integration suites
+public/              README assets
 ```
 
 ## Despliegue
 
 El repositorio incluye [`render.yaml`](./render.yaml) para publicar la API en Render junto con una base PostgreSQL administrada. El servicio compila TypeScript, ejecuta migraciones SQL y arranca con `node dist/server.js`.
 
-## Licencia
+<div align="center">
 
-Distribuido bajo la licencia ISC.
+Desarrollado por **Jose Zum**
+
+</div>
