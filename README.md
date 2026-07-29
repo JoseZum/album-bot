@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./public/logo.png" alt="Album Bot" width="400">
+<img src="./public/logo.png" alt="Album Bot" width="450">
 
-# Album Bot - API
+#
 
 Plataforma de coleccionismo para administrar álbumes de estampas desde Telegram. Centraliza catálogo, progreso, faltantes, repetidas, amistades, álbumes compartidos e intercambios en una API diseñada para colecciones colaborativas.
 
