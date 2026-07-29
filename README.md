@@ -13,11 +13,23 @@ Plataforma de coleccionismo para administrar álbumes de estampas desde Telegram
 [![Telegram](https://img.shields.io/badge/Telegram-Bot%20API-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
 [![CI](https://img.shields.io/github/actions/workflow/status/JoseZum/album-bot/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/JoseZum/album-bot/actions/workflows/ci.yml)
 
-**[Capacidades](#capacidades-principales) · [Garantías](#garantías-operativas) · [Arquitectura](#arquitectura-de-la-aplicación) · [Instalación](#instalación-local) · [Comandos](#comandos-del-bot)**
+**[Cómo usarlo](#cómo-usarlo) · [Capacidades](#capacidades-principales) · [Garantías](#garantías-operativas) · [Arquitectura](#arquitectura-de-la-aplicación) · [Instalación](#instalación-local)**
 
 </div>
 
 ---
+
+## Cómo usarlo
+
+Abre [@WCAPaniniBot](https://t.me/WCAPaniniBot) en Telegram y pulsa **Start**. El bot muestra el menú del álbum activo, actualmente `Panini FIFA World Cup 2026`, y responde a comandos escritos directamente en el chat.
+
+| Área | Comandos |
+| :-- | :-- |
+| **Estampas** | `arg4` revisa Argentina #4. `add arg4` agrega una estampa. `rm arg4` elimina una estampa. `undo` deshace el último cambio. |
+| **Progreso** | `missing arg` muestra las faltantes de un país. `duplicates` lista las estampas duplicadas. `progress` muestra el resumen general. `page arg` consulta la página del álbum para un país. |
+| **Álbumes** | `menu` abre el menú general. `start` abre el menú del álbum. `albums` lista tus álbumes. `new album Nombre` crea uno. `use album 1` cambia el álbum activo. |
+| **Social** | `share @usuario` comparte un álbum. `compare @usuario` compara colecciones. `duplicates @usuario` consulta duplicadas de un amigo. `friends` lista amigos. `friends add @usuario` envía una solicitud. `friends rm @usuario` elimina un amigo. |
+| **Intercambios** | `friends -duplicates arg5` consulta duplicadas de amigos. `trade arg4 bra2` publica un intercambio. `marketplace` muestra el mercado. `friends trade` abre el mercado de amigos. |
 
 ## Capacidades principales
 
@@ -98,55 +110,6 @@ npm run db:up
 npm run db:down
 npm run db:logs
 npm run db:migrate
-```
-
-## Comandos del bot
-
-```text
-add CRC 1
-add CRC 1 CRC 2 ARG 5
-remove ARG 4
-
-missing
-missing Costa Rica
-
-duplicates
-duplicates Argentina
-duplicates @username ARG 5
-
-progress
-page Brazil
-any 17
-
-friends
-friends add @username
-friends remove @username
-friends duplicates
-
-share @username
-compare @username
-compare Argentina @username
-
-trade ARG 2 BRA 4
-trade cancel T1
-trades
-marketplace
-marketplace -mine
-marketplace -give ARG 2
-marketplace -need BRA 4
-
-albums
-album new Road to 2026
-album use 1
-album rename Road to 2026 to Mundial
-album delete
-album leave
-
-start
-menu
-language
-undo
-help
 ```
 
 ## API HTTP
